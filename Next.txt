@@ -1,0 +1,34 @@
+Add Tags. game type, and customer 
+
+
+Deadline
+
+Project summary, to put a note in at the end of the project.
+
+develop a database
+put on our website
+Add login credential --> use most trusted lib --< google
+
+img --> convert to webp when upload to make img small size --> use google lib
+
+Add the Projected hour and Actual hour
+
+img --> add a multiple img
+
+
+filter for the hour --> to get summary and see how will the prject going
+
+Add Priority flag
+
+Add alert flag  -> For example if the hour taking too long, someone can flag it
+
+For, inside the project, there should be a hotlink to where all those asset location be
+
+Add a comment for a project, this should also beable to link back if there are other issue relate
+
+
+Add exporter
+
+
+Database should have a backup system.
+

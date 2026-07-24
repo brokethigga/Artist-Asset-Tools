@@ -1,0 +1,11 @@
+backend/__pycache__/
+backend/choreo.db
+uploads/*
+!uploads/.gitkeep
+*.pyc
+__pycache__/
+.venv/
+brain/
+choreo-tool-build-prompt.md
+project-plan.md
+AGENTS.md

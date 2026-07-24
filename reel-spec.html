@@ -1,0 +1,567 @@
+<!-- Reel Spec — slot symbol production tracker -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#14171c;
+    --surface:#1c2028;
+    --surface-2:#22262f;
+    --border:#2a2f3a;
+    --text:#e8e6e0;
+    --text-dim:#8b8f99;
+    --gold:#c9a227;
+    --gold-dim:#8a7220;
+    --green:#4c9a6a;
+    --amber:#d98f3a;
+    --red:#c1554a;
+    --blue:#5b8ac9;
+  }
+  *{box-sizing:border-box;}
+  body,#reelspec-root{margin:0;padding:0;background:transparent;color:var(--text);font-family:'Inter',sans-serif;}
+  #reelspec-root{width:100%;min-height:100vh;background:var(--bg);}
+  .rs-wrap{max-width:1040px;margin:0 auto;padding:28px 24px 80px;}
+
+  .rs-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
+  .rs-title{font-family:'Fraunces',serif;font-weight:700;font-size:28px;letter-spacing:0.5px;margin:0;color:var(--text);}
+  .rs-title span{color:var(--gold);}
+  .rs-subtitle{color:var(--text-dim);font-size:13px;margin-top:2px;}
+
+  .rs-nav{display:flex;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;}
+  .rs-nav button{background:transparent;border:none;color:var(--text-dim);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;padding:8px 16px;border-radius:7px;cursor:pointer;transition:background .15s,color .15s;}
+  .rs-nav button.active{background:var(--gold);color:#1a1a1a;}
+  .rs-nav button:not(.active):hover{color:var(--text);background:var(--surface-2);}
+
+  .rs-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
+  .rs-card-title{font-family:'Fraunces',serif;font-weight:600;font-size:17px;margin:0 0 4px;}
+  .rs-empty{color:var(--text-dim);font-size:13px;text-align:center;padding:36px 12px;border:1px dashed var(--border);border-radius:10px;}
+
+  .rs-btn{background:var(--gold);color:#1a1a1a;border:none;font-family:'Inter',sans-serif;font-weight:600;font-size:13px;padding:9px 16px;border-radius:8px;cursor:pointer;transition:filter .15s;}
+  .rs-btn:hover{filter:brightness(1.08);}
+  .rs-btn.ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border);}
+  .rs-btn.ghost:hover{color:var(--text);border-color:var(--gold-dim);}
+  .rs-btn.danger{background:transparent;color:var(--red);border:1px solid rgba(193,85,74,0.4);}
+  .rs-btn.danger:hover{background:rgba(193,85,74,0.12);}
+  .rs-btn.small{padding:5px 11px;font-size:12px;}
+
+  .rs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;}
+  .rs-tile{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:16px;cursor:pointer;transition:border-color .15s,transform .1s;position:relative;}
+  .rs-tile:hover{border-color:var(--gold-dim);transform:translateY(-1px);}
+  .rs-tile-name{font-weight:600;font-size:15px;margin-bottom:6px;}
+  .rs-tile-meta{color:var(--text-dim);font-size:12px;font-family:'JetBrains Mono',monospace;}
+  .rs-tile-progress{margin-top:10px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
+  .rs-tile-progress-fill{height:100%;background:var(--green);}
+
+  .rs-field-row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .rs-field{display:flex;flex-direction:column;gap:4px;flex:1;min-width:160px;}
+  .rs-field label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;}
+  .rs-field input,.rs-field select,.rs-field textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:8px 10px;font-family:'Inter',sans-serif;font-size:13px;}
+  .rs-field input:focus,.rs-field select:focus,.rs-field textarea:focus{outline:none;border-color:var(--gold-dim);}
+
+  table.rs-table{width:100%;border-collapse:collapse;margin-top:4px;}
+  table.rs-table th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);padding:6px 8px;border-bottom:1px solid var(--border);}
+  table.rs-table td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  table.rs-table tr:last-child td{border-bottom:none;}
+  .rs-reel-icon{width:30px;height:30px;border-radius:6px;background:linear-gradient(160deg,var(--surface-2),var(--bg));border:1px solid var(--border);box-shadow:inset 0 1px 2px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--gold);flex-shrink:0;}
+  .rs-row-input{background:transparent;border:1px solid transparent;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;padding:5px 6px;border-radius:5px;width:100%;}
+  .rs-row-input:hover{border-color:var(--border);}
+  .rs-row-input:focus{outline:none;border-color:var(--gold-dim);background:var(--bg);}
+  .rs-row-input.mono{font-family:'JetBrains Mono',monospace;}
+  .rs-num-cell{display:flex;align-items:center;gap:3px;}
+  .rs-num-cell span{color:var(--text-dim);font-size:11px;font-family:'JetBrains Mono',monospace;}
+
+  select.rs-status{font-family:'Inter',sans-serif;font-size:12px;font-weight:600;border-radius:6px;padding:5px 8px;border:1px solid var(--border);background:var(--bg);}
+  .status-Not-Started{color:var(--text-dim);}
+  .status-Drawing{color:var(--blue);}
+  .status-Animating{color:var(--amber);}
+  .status-Review{color:var(--gold);}
+  .status-Done{color:var(--green);}
+
+  .rs-icon-btn{background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:15px;padding:4px 6px;border-radius:5px;}
+  .rs-icon-btn:hover{color:var(--red);background:rgba(193,85,74,0.1);}
+
+  .rs-sym-img{width:36px;height:36px;border-radius:6px;object-fit:cover;border:1px solid var(--border);cursor:pointer;display:block;}
+  .rs-sym-noimg{width:36px;height:36px;border-radius:6px;border:1px dashed var(--border);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--text-dim);cursor:pointer;transition:border-color .15s;}
+  .rs-sym-noimg:hover{border-color:var(--gold-dim);color:var(--gold);}
+  .rs-sym-del{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:10px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;opacity:0;transition:opacity .15s;}
+  div:hover > .rs-sym-del{opacity:1;}
+
+  .rs-detail-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+  .rs-breadcrumb{background:transparent;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;margin-bottom:10px;padding:0;}
+  .rs-breadcrumb:hover{color:var(--gold);}
+
+  .rs-loading{text-align:center;color:var(--text-dim);padding:60px 0;font-family:'JetBrains Mono',monospace;font-size:13px;}
+  .rs-toast{position:fixed;bottom:20px;right:20px;background:var(--surface-2);border:1px solid var(--gold-dim);color:var(--text);padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transform:translateY(6px);transition:opacity .2s,transform .2s;pointer-events:none;z-index:50;}
+  .rs-toast.show{opacity:1;transform:translateY(0);}
+  .rs-form-inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
+  .rs-shared-note{font-size:11.5px;color:var(--text-dim);margin-top:2px;}
+</style>
+
+<div id="reelspec-root"><div class="rs-loading">Loading reel spec…</div></div>
+
+<script>
+(function(){
+  const root = document.getElementById('reelspec-root');
+  const STATUSES = ['Not Started','Drawing','Animating','Review','Done'];
+  const ANIM_SUGGESTIONS = ['Idle Loop','Win Celebration','Anticipation','Reveal / SRS','Intro','Transition','Big Win','Landing'];
+
+  let templates = {};   // id -> {id,name,symbols:[...]}
+  let projects = {};    // id -> {id,customerName,gameName,templateId,createdAt,symbols:[...]}
+  let view = 'templates'; // templates | projects
+  let activeTemplateId = null;
+  let activeProjectId = null;
+  let newProjectDraft = {customerName:'', gameName:'', templateId:''};
+
+  function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+  function escapeHtml(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function statusClass(s){ return 'status-' + s.replace(/\s+/g,'-'); }
+
+  function toast(msg){
+    let t = document.getElementById('rs-toast');
+    if(!t){ t = document.createElement('div'); t.id='rs-toast'; t.className='rs-toast'; document.body.appendChild(t); }
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._h);
+    t._h = setTimeout(()=>t.classList.remove('show'), 2200);
+  }
+
+  function newSymbol(overrides){
+    return Object.assign({
+      id: uid('sym'),
+      name: 'New Symbol',
+      duration: 5,
+      size: '512x512',
+      animType: 'Idle Loop',
+      notes: '',
+      status: 'Not Started'
+    }, overrides || {});
+  }
+
+  function loadAll(){
+    templates = {};
+    projects = {};
+    for(let i = 0; i < localStorage.length; i++){
+      const key = localStorage.key(i);
+      try{
+        const val = JSON.parse(localStorage.getItem(key));
+        if(key.startsWith('template:') && val && val.id) templates[val.id] = val;
+        if(key.startsWith('project:') && val && val.id) projects[val.id] = val;
+      }catch(e){}
+    }
+    render();
+  }
+
+  function saveTemplate(t){
+    try{
+      localStorage.setItem('template:' + t.id, JSON.stringify(t));
+      toast('Template saved');
+    }catch(e){ toast('Save failed'); }
+  }
+  function deleteTemplateStorage(id){
+    try{ localStorage.removeItem('template:' + id); }catch(e){}
+  }
+  function saveProject(p){
+    try{
+      localStorage.setItem('project:' + p.id, JSON.stringify(p));
+    }catch(e){ toast('Save failed'); }
+  }
+  function deleteProjectStorage(id){
+    try{ localStorage.removeItem('project:' + id); }catch(e){}
+  }
+
+  // ---------- RENDER ----------
+  function render(){
+    const html = `
+      <div class="rs-wrap">
+        <div class="rs-header">
+          <div>
+            <h1 class="rs-title">REEL <span>SPEC</span></h1>
+            <div class="rs-subtitle">Symbol specs, timing &amp; production status — shared with your whole team</div>
+          </div>
+          <div class="rs-nav">
+            <button data-nav="templates" class="${view==='templates'?'active':''}">Templates</button>
+            <button data-nav="projects" class="${view==='projects'?'active':''}">Projects</button>
+          </div>
+        </div>
+        <div id="rs-body"></div>
+      </div>
+    `;
+    root.innerHTML = html;
+    document.querySelectorAll('[data-nav]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ view = btn.dataset.nav; activeTemplateId=null; activeProjectId=null; render(); });
+    });
+    const body = document.getElementById('rs-body');
+    if(view==='templates'){
+      body.innerHTML = activeTemplateId ? renderTemplateDetail(templates[activeTemplateId]) : renderTemplateList();
+    } else {
+      body.innerHTML = activeProjectId ? renderProjectDetail(projects[activeProjectId]) : renderProjectList();
+    }
+    wireBodyEvents();
+  }
+
+  function renderTemplateList(){
+    const list = Object.values(templates).sort((a,b)=>a.name.localeCompare(b.name));
+    return `
+      <div class="rs-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <div>
+            <div class="rs-card-title">Game type templates</div>
+            <div class="rs-shared-note">A template defines every symbol a game type needs, so nothing gets forgotten when a new game starts.</div>
+          </div>
+          <button class="rs-btn" id="rs-new-template">+ New template</button>
+        </div>
+        ${list.length ? `<div class="rs-grid">${list.map(t=>`
+          <div class="rs-tile" data-open-template="${t.id}">
+            <div class="rs-tile-name">${escapeHtml(t.name)}</div>
+            <div class="rs-tile-meta">${t.symbols.length} symbol${t.symbols.length===1?'':'s'}</div>
+          </div>
+        `).join('')}</div>` : `<div class="rs-empty">No templates yet. Create one per game type — e.g. "3-Pot Hold &amp; Win", "Classic Scatter".</div>`}
+      </div>
+    `;
+  }
+
+  function renderTemplateDetail(t){
+    if(!t) return renderTemplateList();
+    return `
+      <button class="rs-breadcrumb" id="rs-back-templates">← All templates</button>
+      <div class="rs-card">
+        <div class="rs-detail-top">
+          <div class="rs-field" style="max-width:320px;">
+            <label>Template name</label>
+            <input class="rs-row-input" style="border:1px solid var(--border);background:var(--bg);" id="rs-template-name" value="${escapeHtml(t.name)}"/>
+          </div>
+          <button class="rs-btn danger small" id="rs-delete-template">Delete template</button>
+        </div>
+        ${renderSymbolTable(t.symbols, 'template')}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="rs-btn ghost small" id="rs-add-symbol-template">+ Add symbol</button>
+          <button class="rs-btn small" id="rs-save-template">Save template</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderSymbolTable(symbols, mode){
+    // mode: 'template' (no status column) or 'project' (status column, editable)
+    if(!symbols.length) return `<div class="rs-empty">No symbols yet — add the elements this game needs (scatter, wild, coins, pots…).</div>`;
+    return `
+      <table class="rs-table">
+        <thead><tr>
+          <th style="width:34px;"></th>
+          <th>Symbol</th>
+          <th style="width:110px;">Duration (s)</th>
+          <th style="width:110px;">Size</th>
+          <th style="width:170px;">Animation type</th>
+           <th>Notes</th>
+           ${mode==='project' ? '<th style="width:44px;">Img</th><th style="width:130px;">Status</th>' : ''}
+           <th style="width:36px;"></th>
+        </tr></thead>
+        <tbody>
+          ${symbols.map(s=>`
+            <tr data-symbol-row="${s.id}">
+              <td><div class="rs-reel-icon">◆</div></td>
+              <td><input class="rs-row-input" data-field="name" value="${escapeHtml(s.name)}" placeholder="Symbol name"/></td>
+              <td>
+                <div class="rs-num-cell">
+                  <input class="rs-row-input mono" data-field="duration" type="number" min="0" step="0.5" value="${s.duration}" style="width:56px;"/>
+                  <span>sec</span>
+                </div>
+              </td>
+              <td><input class="rs-row-input mono" data-field="size" value="${escapeHtml(s.size)}" placeholder="512x512"/></td>
+              <td>
+                <input class="rs-row-input" data-field="animType" list="rs-anim-list" value="${escapeHtml(s.animType)}"/>
+              </td>
+               <td><input class="rs-row-input" data-field="notes" value="${escapeHtml(s.notes)}" placeholder="—"/></td>
+               ${mode==='project' ? `
+               <td style="padding:3px 4px;">
+                 ${s.imagePath ? `<div style="position:relative;display:inline-block;"><img src="/uploads/${escapeHtml(s.imagePath)}" class="rs-sym-img" onclick="viewReelImage('${s.id}')" title="Click to view"><button class="rs-sym-del" onclick="event.stopPropagation();deleteReelImage('${s.id}')" title="Remove image">×</button></div>` : `<div class="rs-sym-noimg" onclick="uploadReelImage('${s.id}')" title="Upload image">+</div>`}
+               </td>
+               <td>
+                 <select class="rs-status ${statusClass(s.status)}" data-field="status">
+                   ${STATUSES.map(st=>`<option value="${st}" ${st===s.status?'selected':''}>${st}</option>`).join('')}
+                 </select>
+               </td>` : ''}
+              <td><button class="rs-icon-btn" data-remove-symbol="${s.id}" title="Remove symbol">✕</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <datalist id="rs-anim-list">${ANIM_SUGGESTIONS.map(a=>`<option value="${a}"></option>`).join('')}</datalist>
+    `;
+  }
+
+  function renderProjectList(){
+    const list = Object.values(projects).sort((a,b)=> (b.createdAt||0) - (a.createdAt||0));
+    const templateOpts = Object.values(templates).sort((a,b)=>a.name.localeCompare(b.name));
+    return `
+      <div class="rs-card">
+        <div class="rs-card-title" style="margin-bottom:10px;">New project</div>
+        <div class="rs-form-inline">
+          <div class="rs-field"><label>Customer</label>
+            <input class="rs-row-input" style="border:1px solid var(--border);background:var(--bg);" id="rs-new-customer" placeholder="e.g. Golden Palace Studio" value="${escapeHtml(newProjectDraft.customerName)}"/>
+          </div>
+          <div class="rs-field"><label>Game name</label>
+            <input class="rs-row-input" style="border:1px solid var(--border);background:var(--bg);" id="rs-new-gamename" placeholder="e.g. Dragon's Pot 2" value="${escapeHtml(newProjectDraft.gameName)}"/>
+          </div>
+          <div class="rs-field"><label>Game type (template)</label>
+            <select class="rs-row-input" style="border:1px solid var(--border);background:var(--bg);" id="rs-new-templateid">
+              <option value="">Select template…</option>
+              ${templateOpts.map(t=>`<option value="${t.id}" ${t.id===newProjectDraft.templateId?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}
+            </select>
+          </div>
+          <button class="rs-btn" id="rs-create-project">Create project</button>
+        </div>
+        ${templateOpts.length===0 ? `<div class="rs-shared-note" style="margin-top:8px;">You need at least one template before starting a project — create one in the Templates tab.</div>` : ''}
+      </div>
+      <div class="rs-card">
+        <div class="rs-card-title" style="margin-bottom:12px;">Projects</div>
+        ${list.length ? `<div class="rs-grid">${list.map(p=>{
+          const total = p.symbols.length;
+          const done = p.symbols.filter(s=>s.status==='Done').length;
+          const pct = total ? Math.round(done/total*100) : 0;
+          return `
+          <div class="rs-tile" data-open-project="${p.id}">
+            <div class="rs-tile-name">${escapeHtml(p.gameName || 'Untitled game')}</div>
+            <div class="rs-tile-meta">${escapeHtml(p.customerName || 'No customer')} · ${escapeHtml((templates[p.templateId]||{}).name || 'template removed')}</div>
+            <div class="rs-tile-progress"><div class="rs-tile-progress-fill" style="width:${pct}%;"></div></div>
+            <div class="rs-tile-meta" style="margin-top:5px;">${done}/${total} symbols done</div>
+          </div>`;
+        }).join('')}</div>` : `<div class="rs-empty">No projects yet. Create one above once you have a template ready.</div>`}
+      </div>
+    `;
+  }
+
+  function renderProjectDetail(p){
+    if(!p) return renderProjectList();
+    return `
+      <button class="rs-breadcrumb" id="rs-back-projects">← All projects</button>
+      <div class="rs-card">
+        <div class="rs-detail-top">
+          <div class="rs-field-row" style="margin-bottom:0;">
+            <div class="rs-field"><label>Customer</label>
+              <input class="rs-row-input" style="border:1px solid var(--border);background:var(--bg);" id="rs-proj-customer" value="${escapeHtml(p.customerName)}"/>
+            </div>
+            <div class="rs-field"><label>Game name</label>
+              <input class="rs-row-input" style="border:1px solid var(--border);background:var(--bg);" id="rs-proj-gamename" value="${escapeHtml(p.gameName)}"/>
+            </div>
+            <div class="rs-field"><label>Template</label>
+              <div style="padding:8px 10px;color:var(--text-dim);font-size:13px;">${escapeHtml((templates[p.templateId]||{}).name || 'template removed')}</div>
+            </div>
+          </div>
+          <button class="rs-btn danger small" id="rs-delete-project">Delete project</button>
+        </div>
+        ${renderSymbolTable(p.symbols, 'project')}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="rs-btn ghost small" id="rs-add-symbol-project">+ Add symbol</button>
+          <button class="rs-btn small" id="rs-save-project">Save project</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ---------- EVENTS ----------
+  function wireBodyEvents(){
+    // navigation into detail views
+    root.querySelectorAll('[data-open-template]').forEach(el=>{
+      el.addEventListener('click', ()=>{ activeTemplateId = el.dataset.openTemplate; render(); });
+    });
+    root.querySelectorAll('[data-open-project]').forEach(el=>{
+      el.addEventListener('click', ()=>{ activeProjectId = el.dataset.openProject; render(); });
+    });
+    const backT = document.getElementById('rs-back-templates');
+    if(backT) backT.addEventListener('click', ()=>{ activeTemplateId=null; render(); });
+    const backP = document.getElementById('rs-back-projects');
+    if(backP) backP.addEventListener('click', ()=>{ activeProjectId=null; render(); });
+
+    // new template
+    const newTplBtn = document.getElementById('rs-new-template');
+    if(newTplBtn) newTplBtn.addEventListener('click', async ()=>{
+      const t = { id: uid('tpl'), name: 'New Game Type', symbols: [newSymbol({name:'Scatter'}), newSymbol({name:'Wild'})] };
+      templates[t.id] = t;
+      await saveTemplate(t);
+      activeTemplateId = t.id;
+      render();
+    });
+
+    // template detail
+    const saveTplBtn = document.getElementById('rs-save-template');
+    if(saveTplBtn) saveTplBtn.addEventListener('click', async ()=>{
+      const t = templates[activeTemplateId];
+      t.name = document.getElementById('rs-template-name').value.trim() || t.name;
+      readSymbolTableIntoModel(t.symbols, 'template');
+      await saveTemplate(t);
+      render();
+    });
+    const delTplBtn = document.getElementById('rs-delete-template');
+    if(delTplBtn) delTplBtn.addEventListener('click', async ()=>{
+      if(delTplBtn.dataset.confirm !== '1'){
+        delTplBtn.dataset.confirm = '1';
+        delTplBtn.textContent = 'Click again to confirm';
+        setTimeout(()=>{ delTplBtn.dataset.confirm=''; delTplBtn.textContent='Delete template'; }, 2500);
+        return;
+      }
+      const id = activeTemplateId;
+      delete templates[id];
+      await deleteTemplateStorage(id);
+      activeTemplateId = null;
+      toast('Template deleted');
+      render();
+    });
+    const addSymTplBtn = document.getElementById('rs-add-symbol-template');
+    if(addSymTplBtn) addSymTplBtn.addEventListener('click', ()=>{
+      readSymbolTableIntoModel(templates[activeTemplateId].symbols, 'template');
+      templates[activeTemplateId].symbols.push(newSymbol());
+      render();
+    });
+
+    // new project form
+    const custInput = document.getElementById('rs-new-customer');
+    if(custInput) custInput.addEventListener('input', e=>{ newProjectDraft.customerName = e.target.value; });
+    const gameInput = document.getElementById('rs-new-gamename');
+    if(gameInput) gameInput.addEventListener('input', e=>{ newProjectDraft.gameName = e.target.value; });
+    const tplSelect = document.getElementById('rs-new-templateid');
+    if(tplSelect) tplSelect.addEventListener('change', e=>{ newProjectDraft.templateId = e.target.value; });
+    const createBtn = document.getElementById('rs-create-project');
+    if(createBtn) createBtn.addEventListener('click', async ()=>{
+      if(!newProjectDraft.templateId){ toast('Choose a game type template first'); return; }
+      const tpl = templates[newProjectDraft.templateId];
+      const p = {
+        id: uid('proj'),
+        customerName: newProjectDraft.customerName.trim(),
+        gameName: newProjectDraft.gameName.trim(),
+        templateId: tpl.id,
+        createdAt: Date.now(),
+        symbols: tpl.symbols.map(s => Object.assign({}, s, { id: uid('sym'), status: 'Not Started' }))
+      };
+      projects[p.id] = p;
+      await saveProject(p);
+      newProjectDraft = {customerName:'', gameName:'', templateId:''};
+      activeProjectId = p.id;
+      render();
+    });
+
+    // project detail
+    const saveProjBtn = document.getElementById('rs-save-project');
+    if(saveProjBtn) saveProjBtn.addEventListener('click', async ()=>{
+      const p = projects[activeProjectId];
+      p.customerName = document.getElementById('rs-proj-customer').value.trim();
+      p.gameName = document.getElementById('rs-proj-gamename').value.trim();
+      readSymbolTableIntoModel(p.symbols, 'project');
+      await saveProject(p);
+      render();
+    });
+    const delProjBtn = document.getElementById('rs-delete-project');
+    if(delProjBtn) delProjBtn.addEventListener('click', async ()=>{
+      if(delProjBtn.dataset.confirm !== '1'){
+        delProjBtn.dataset.confirm = '1';
+        delProjBtn.textContent = 'Click again to confirm';
+        setTimeout(()=>{ delProjBtn.dataset.confirm=''; delProjBtn.textContent='Delete project'; }, 2500);
+        return;
+      }
+      const id = activeProjectId;
+      delete projects[id];
+      await deleteProjectStorage(id);
+      activeProjectId = null;
+      toast('Project deleted');
+      render();
+    });
+    const addSymProjBtn = document.getElementById('rs-add-symbol-project');
+    if(addSymProjBtn) addSymProjBtn.addEventListener('click', ()=>{
+      readSymbolTableIntoModel(projects[activeProjectId].symbols, 'project');
+      projects[activeProjectId].symbols.push(newSymbol());
+      render();
+    });
+
+    // remove symbol rows (works in both template & project detail)
+    root.querySelectorAll('[data-remove-symbol]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.dataset.removeSymbol;
+        if(activeTemplateId){
+          readSymbolTableIntoModel(templates[activeTemplateId].symbols, 'template');
+          templates[activeTemplateId].symbols = templates[activeTemplateId].symbols.filter(s=>s.id!==id);
+        } else if(activeProjectId){
+          readSymbolTableIntoModel(projects[activeProjectId].symbols, 'project');
+          projects[activeProjectId].symbols = projects[activeProjectId].symbols.filter(s=>s.id!==id);
+        }
+        render();
+      });
+    });
+
+    // live status pill coloring on change
+    root.querySelectorAll('select.rs-status').forEach(sel=>{
+      sel.addEventListener('change', ()=>{
+        sel.className = 'rs-status ' + statusClass(sel.value);
+      });
+    });
+  }
+
+  function readSymbolTableIntoModel(symbols, mode){
+    root.querySelectorAll('[data-symbol-row]').forEach(row=>{
+      const id = row.dataset.symbolRow;
+      const s = symbols.find(x=>x.id===id);
+      if(!s) return;
+      row.querySelectorAll('[data-field]').forEach(inp=>{
+        const f = inp.dataset.field;
+        if(f==='duration') s[f] = parseFloat(inp.value) || 0;
+        else s[f] = inp.value;
+      });
+    });
+  }
+
+  // image upload for reel spec symbols
+  function uploadReelImage(symId){
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      if(!input.files.length) return;
+      const p = activeProjectId ? projects[activeProjectId] : null;
+      if(!p) return;
+      readSymbolTableIntoModel(p.symbols, 'project');
+      const s = p.symbols.find(x => x.id === symId);
+      if(!s) return;
+      const fd = new FormData();
+      fd.append('file', input.files[0]);
+      try{
+        const res = await fetch('/api/reel/upload', { method: 'POST', body: fd });
+        if(!res.ok) throw new Error('Upload failed');
+        const data = await res.json();
+        s.imagePath = data.image_path;
+        saveProject(p);
+        render();
+      }catch(e){ toast('Image upload failed'); }
+    };
+    input.click();
+  }
+
+  async function deleteReelImage(symId){
+    const p = activeProjectId ? projects[activeProjectId] : null;
+    if(!p) return;
+    readSymbolTableIntoModel(p.symbols, 'project');
+    const s = p.symbols.find(x => x.id === symId);
+    if(!s || !s.imagePath) return;
+    try{
+      await fetch('/api/reel/upload', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({image_path: s.imagePath}) });
+    }catch(e){}
+    delete s.imagePath;
+    saveProject(p);
+    render();
+  }
+
+  function viewReelImage(symId){
+    const p = activeProjectId ? projects[activeProjectId] : null;
+    if(!p) return;
+    const s = p.symbols.find(x => x.id === symId);
+    if(!s || !s.imagePath) return;
+    const img = document.createElement('img');
+    img.src = '/uploads/' + s.imagePath;
+    img.style.cssText = 'max-width:100%;max-height:80vh;border-radius:8px;display:block;margin:0 auto;';
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:100;cursor:pointer;';
+    overlay.appendChild(img);
+    overlay.onclick = () => overlay.remove();
+    document.body.appendChild(overlay);
+  }
+
+  loadAll();
+})();
+</script>
