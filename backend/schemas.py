@@ -142,6 +142,7 @@ class EntryCreate(BaseModel):
     priority: str = "Medium"
     phase: str = "Animating"
     status: str = "Not Started"
+    asset_link: str = ""
 
 
 class EntryUpdate(BaseModel):
@@ -159,6 +160,7 @@ class EntryUpdate(BaseModel):
     alert_flag_reason: Optional[str] = None
     image_path: Optional[str] = None
     status: Optional[str] = None
+    asset_link: Optional[str] = None
 
 
 class EntryOut(BaseModel):
@@ -178,6 +180,7 @@ class EntryOut(BaseModel):
     alert_flag_reason: Optional[str]
     image_path: str
     status: str
+    asset_link: Optional[str] = None
     model_config = {"from_attributes": True}
 
 

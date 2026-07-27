@@ -73,6 +73,46 @@ Track all changes, decisions, and progress here.
 
 ---
 
+## 2026-07-27 — UI Enhancements + Tags + Asset Link
+
+### `phase` Column
+- Added `phase` column to Entry model (Animating/Drawing work-type sub-entries)
+- Default changed from "Drawing" to "Animating" in EntryCreate
+- Fixed FastAPI 0.139.x serialization issue for `phase` — changed from `e.phase or None` pattern to explicit `EntryOut.model_validate()` in all endpoints
+- Migration `1e0194921c9d` applied
+
+### UI Improvements
+- Removed empty `—` option from Type dropdown
+- Elements are collapsible/expandable (click header to toggle)
+- Type summary bar (`Drawing: Xh | Animating: Xh`) below each element header
+- All entry changes update summaries and rollup in real time without page refresh
+- Proj/Actual columns widened to 90px
+- Single filter bar below search bar: State, Type, Artist, Priority, Flag, Status + Clear button
+- Filter state preserved across re-renders; empty state shows filter bar + "No matches" message
+
+### Project-Level Tags
+- `Tag` model (id, project_id, name) — tags belong to a project
+- CRUD endpoints: `GET/POST /api/projects/{id}/tags`, `DELETE /api/tags/{id}`
+- Tag management in project detail view (add/delete tags with badges)
+- Tag filter on project list screen — filter projects by tag name
+- Migration `a8dd0fa6bfe7` applied (also cleans up leftover `entry_tags` table)
+
+### Per-Entry Asset Link
+- `asset_link` column on Entry (String, default `""`)
+- Link icon (🔗) + edit pencil (✎) in state cell of entry table
+- Click pencil to set/change URL, click 🔗 to open in new tab
+- Auto-prepends `https://` if no protocol given
+- Migration included in `a8dd0fa6bfe7`
+
+### Bug Fixes
+- Fixed `alert_flag_reason` missing from `EntryUpdate` schema
+- Fixed `phase` not appearing in API responses (FastAPI 0.139.x compatibility)
+- Fixed `asset_link: str` rejecting `NULL` from DB — changed to `Optional[str]`
+- Fixed stray `}` causing JS SyntaxError
+- Fixed `JSON.stringify` in onclick breaking HTML attributes
+
+---
+
 ## Pending
 
 - [ ] Phase 7: Exporter (Excel/CSV/PDF)
@@ -90,6 +130,9 @@ Track all changes, decisions, and progress here.
 | 2026-07-27 | First user per org = admin | Logical default, no separate setup needed |
 | 2026-07-27 | Dev mode auto-login | Allows frontend dev without Google OAuth |
 | 2026-07-27 | Rename hours → projected/actual | Clearer tracking |
+| 2026-07-27 | Project-level tags (not entry-level) | Tags filter project list, per user request |
+| 2026-07-27 | Per-entry asset link in state cell | Link per animation state, not just project |
+| 2026-07-27 | Default phase = "Animating" | Per user request (was "Drawing") |
 
 ---
 
@@ -105,3 +148,4 @@ Track all changes, decisions, and progress here.
 - Alert threshold: 1.25 (25% over) — configurable via ALERT_THRESHOLD env var
 - Real-time alert check on entry update
 - Backup: local first, S3/deployment decision later
+- Server must be restarted to pick up backend Python changes (no `--reload` flag in run.bat)

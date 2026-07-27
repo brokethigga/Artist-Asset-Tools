@@ -31,9 +31,9 @@ http://localhost:8000/app
 
 ```
 ├── backend/
-│   ├── main.py          # FastAPI routes (677 lines)
-│   ├── models.py        # SQLAlchemy models (175 lines)
-│   ├── schemas.py       # Pydantic schemas (175 lines)
+│   ├── main.py          # FastAPI routes (~810 lines)
+│   ├── models.py        # SQLAlchemy models (~165 lines)
+│   ├── schemas.py       # Pydantic schemas (~220 lines)
 │   ├── database.py      # DB engine/session (25 lines)
 │   ├── config.py        # Environment config (15 lines)
 │   ├── seed.py          # Initial data seed
@@ -42,8 +42,8 @@ http://localhost:8000/app
 │
 ├── frontend/
 │   ├── index.html       # Entry point
-│   ├── app.js           # SPA logic
-│   └── style.css        # Styles
+│   ├── app.js           # SPA logic (~795 lines)
+│   └── style.css        # Styles (~195 lines)
 │
 ├── uploads/             # User-uploaded images
 ├── references/          # Source choreography docs
@@ -78,9 +78,11 @@ Organization (tenant)
 ├── User (Google OAuth, role, approved)
 ├── Blueprint (element + states)
 ├── Template (group of blueprints)
+├── Tag (project-level labels, optional)
 └── Project (instance of a template)
-    ├── Entry (task with hours, priority, alerts)
-    │   └── EntryImage (multiple images)
+    ├── Entry (task with hours, priority, alerts, phase, asset_link)
+    │   ├── EntryImage (multiple images)
+    │   └── EntryTag (assigned tags — removed, tags are project-level only)
     └── Comment (with cross-linking)
 ```
 
@@ -124,6 +126,9 @@ Organization (tenant)
 ### Projects
 - CRUD at `/api/projects`
 - `GET /api/projects/{id}/rollup` — Hours summary
+- `GET /api/projects/{id}/tags` — List project tags
+- `POST /api/projects/{id}/tags` — Create tag
+- `DELETE /api/tags/{id}` — Delete tag
 
 ### Entries
 - CRUD at `/api/entries`
@@ -155,6 +160,17 @@ Organization (tenant)
 - Backups
 - Deployment
 
+### Additional: COMPLETE (per-user requests)
+- `phase` column on Entry (Animating/Drawing work-type sub-entries)
+- Collapsible element sections
+- Type summary bar per element
+- Real-time updates without page refresh
+- Entry filter bar (state, type, artist, priority, flag, status)
+- Project-level tags with filter on project list
+- Per-entry asset link (icon in state cell)
+- Default entry type changed to "Animating"
+- `phase` serialization fix (FastAPI 0.139.x)
+
 ---
 
 ## Dependencies (Current)
@@ -180,6 +196,9 @@ pillow, openpyxl
 | Dev mode | Auto-login when no OAuth | Allows frontend dev without setup |
 | Images | WebP compression | Smaller file sizes |
 | Hours | projected + actual | Clear tracking, alert triggers |
+| Tags | Project-level (Tag table) | Filter projects by tag on list view |
+| Phase | Added to Entry for work-type sub-entries | Distinguish Animating vs Drawing within same element |
+| asset_link | Per-entry (in state cell) | Link to asset per animation state |
 
 ---
 
@@ -233,5 +252,5 @@ alembic upgrade head
 
 ## Status
 
-**Current:** Phases 1-6 complete, app functional
+**Current:** Phases 1-6 complete + additional enhancements, app functional
 **Next:** Phase 7 — Exporter (Excel/CSV/PDF)

@@ -114,6 +114,7 @@ class Entry(Base):
     alert_flag_reason = Column(String, nullable=True)
     image_path = Column(String, default="")
     status = Column(String, default="Not Started")
+    asset_link = Column(String, default="")
     project = relationship("Project", back_populates="entries")
     images = relationship("EntryImage", back_populates="entry", cascade="all, delete-orphan",
                           order_by="EntryImage.sort_order")

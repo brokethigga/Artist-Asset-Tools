@@ -85,6 +85,8 @@ button.small.danger { background: #ffcdd2; color: #c62828; }
 
 .state-label { font-weight: 600; font-size: 13px; padding: 4px 0; }
 .state-hours { font-weight: 400; font-size: 11px; color: #888; display: block; }
+.state-link-icon { font-size: 14px; text-decoration: none; margin-right: 2px; }
+.state-link-icon:hover { opacity: .7; }
 
 /* Over budget */
 .entry-table .over-budget { color: #c62828; font-weight: 600; }

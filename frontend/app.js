@@ -434,8 +434,13 @@ function renderEntries() {
             const priorityOpts = PRIORITIES.map(p => `<option value="${p}" ${e.priority === p ? 'selected' : ''}>${p}</option>`).join('');
             const overBudget = e.projected_hours > 0 && e.actual_hours > e.projected_hours;
             // State name shown only on first row of this state group
+            const firstEntry = stateEntries[0];
+            const linkUrl = firstEntry && firstEntry.asset_link ? (firstEntry.asset_link.match(/^https?:\/\//) ? firstEntry.asset_link : 'https://' + firstEntry.asset_link) : '';
+            const linkIcon = firstEntry && firstEntry.asset_link
+              ? `<a href="${esc(linkUrl)}" target="_blank" title="${esc(firstEntry.asset_link)}" class="state-link-icon" onclick="event.stopPropagation()">🔗</a>`
+              : `<span class="state-link-icon" style="opacity:.3">🔗</span>`;
             const stateCell = idx === 0
-              ? `<td class="col-state" rowspan="${stateEntries.length}"><div class="state-label">${esc(animName)}<br><span class="state-hours">${stProj.toFixed(2)}h / ${stActual.toFixed(2)}h</span></div></td>`
+              ? `<td class="col-state" rowspan="${stateEntries.length}"><div class="state-label">${esc(animName)}<br><span class="state-hours">${stProj.toFixed(2)}h / ${stActual.toFixed(2)}h</span><br><span style="font-size:11px">${linkIcon} <a href="#" onclick="event.stopPropagation();setAssetLink(${firstEntry.id});return false" style="color:#1565c0;text-decoration:none" title="Set asset link">✎</a></span></div></td>`
               : '';
             return `<tr class="${e.alert_flag ? 'flagged' : ''}">
               ${stateCell}
@@ -528,6 +533,20 @@ async function patchEntry(id, field, value) {
   }
   refreshTypeSummaries();
   refreshRollup();
+}
+
+async function setAssetLink(entryId) {
+  const entry = currentEntries.find(e => e.id === entryId);
+  const currentUrl = entry ? entry.asset_link : '';
+  let u = prompt('Asset link', currentUrl);
+  if (u === null) return;
+  if (u && !u.match(/^https?:\/\//)) u = 'https://' + u;
+  const result = await api("/entries/" + entryId, { method: "PUT", body: JSON.stringify({ asset_link: u }) });
+  if (result) {
+    const idx = currentEntries.findIndex(e => e.id === entryId);
+    if (idx !== -1) currentEntries[idx] = result;
+  }
+  renderEntries();
 }
 
 
