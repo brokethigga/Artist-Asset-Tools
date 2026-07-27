@@ -2,3 +2,12 @@ fastapi
 uvicorn
 sqlalchemy
 python-docx
+alembic
+psycopg2-binary
+python-dotenv
+authlib
+httpx
+python-jose[cryptography]
+itsdangerous
+pillow
+openpyxl
