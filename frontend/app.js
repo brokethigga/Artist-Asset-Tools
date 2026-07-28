@@ -37,7 +37,6 @@ function showModal(html) {
 function closeModal() {
   document.getElementById("modal").classList.add("hidden");
 }
-document.getElementById("modal").addEventListener("click", e => { if (e.target === e.currentTarget) closeModal(); });
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 
@@ -190,7 +189,7 @@ function filterCards(input, containerId) {
 
 function filterProjects(nameVal) {
   const t = nameVal.toLowerCase();
-  const tagVal = document.getElementById('project-tag-filter').value.toLowerCase();
+  const tagVal = document.getElementById('project-tag-filter')?.value?.toLowerCase() || '';
   document.querySelectorAll('#project-list .card[data-name]').forEach(c => {
     const nameMatch = !t || c.dataset.name.includes(t);
     const tagMatch = !tagVal || (c.dataset.tags || '').includes(tagVal);
@@ -210,9 +209,10 @@ async function loadProjects() {
   }
   const el = document.getElementById("tab-projects");
   el.innerHTML = `
+    <div id="project-list">
     <div class="page-header"><h2>Projects</h2><button onclick="showProjectForm()">+ New Project</button></div>
     <div class="search-bar" style="display:flex;gap:8px"><input type="text" id="project-search" placeholder="Search projects..." oninput="filterProjects(this.value)" class="search-input" style="flex:1"><input type="text" id="project-tag-filter" placeholder="Filter by tag..." oninput="filterProjects(document.getElementById('project-search').value)" class="search-input" style="max-width:200px"></div>
-    <div id="project-list">${projects.length ? '<div class="grid">' + projects.map(p => {
+    ${projects.length ? '<div class="grid">' + projects.map(p => {
       const t = templates.find(x => x.id === p.template_id);
       const tags = projectTags[p.id] || [];
       return `<div class="card" data-name="${esc(p.name.toLowerCase())}" data-tags="${esc(tags.map(t => t.name).join(' ').toLowerCase())}" onclick="openProject(${p.id})" style="cursor:pointer">
@@ -222,7 +222,8 @@ async function loadProjects() {
         <div class="progress-bar" id="prog-${p.id}"><div class="progress-fill" style="width:0%"></div></div>
         <div class="meta"><span class="badge ${p.status}">${p.status}</span> ${new Date(p.created_at).toLocaleDateString()}</div>
       </div>`;
-    }).join("") + '</div>' : '<p style="color:#999">No projects yet.</p>'}</div>
+    }).join("") + '</div>' : '<p style="color:#999">No projects yet.</p>'}
+    </div>
     <div id="project-detail" class="hidden"></div>
     <div id="project-entries" class="hidden"></div>`;
   // Fetch progress for each project
