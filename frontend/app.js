@@ -292,6 +292,15 @@ async function openProject(id) {
   renderProjectDetail();
 }
 
+async function updateProjectField(field, val) {
+  await api("/projects/" + currentProject.id, { method: "PUT", body: JSON.stringify({ [field]: val || null }) });
+  currentProject[field] = val || null;
+}
+
+function exportProject(fmt) {
+  window.open("/api/projects/" + currentProject.id + "/export?format=" + fmt, "_blank");
+}
+
 async function updateProjectDeadline(val) {
   await api("/projects/" + currentProject.id, { method: "PUT", body: JSON.stringify({ deadline: val || null }) });
   currentProject.deadline = val || null;
@@ -308,17 +317,18 @@ function closeProjectView() {
 function renderProjectDetail() {
   const p = currentProject;
   const meta = [];
-  if (p.game_type) meta.push(`<span class="badge">${esc(p.game_type)}</span>`);
-  if (p.customer) meta.push(`<span>Client: ${esc(p.customer)}</span>`);
-  if (p.deadline) meta.push(`<span>Deadline: <input type="date" value="${esc(p.deadline || '')}" onchange="updateProjectDeadline(this.value)" style="border:none;background:transparent;font:inherit;color:inherit;padding:0;cursor:pointer"></span>`);
-  else meta.push(`<span>Deadline: <input type="date" value="" onchange="updateProjectDeadline(this.value)" style="border:none;background:transparent;font:inherit;color:#999;padding:0;cursor:pointer"></span>`);
+  meta.push(`<span><input type="text" value="${esc(p.game_type)}" placeholder="Game type" onchange="updateProjectField('game_type',this.value)" style="border:none;background:transparent;font:inherit;font-size:13px;color:#555;padding:0;width:100px" class="editable-field"></span>`);
+  meta.push(`<span>Client: <input type="text" value="${esc(p.customer)}" placeholder="Client name" onchange="updateProjectField('customer',this.value)" style="border:none;background:transparent;font:inherit;font-size:13px;color:#555;padding:0;width:120px" class="editable-field"></span>`);
+  meta.push(`<span>Deadline: <input type="date" value="${esc(p.deadline || '')}" onchange="updateProjectDeadline(this.value)" style="border:none;background:transparent;font:inherit;color:inherit;padding:0;cursor:pointer"></span>`);
   if (p.asset_link) meta.push(`<a href="${esc(p.asset_link)}" target="_blank" style="color:#1565c0">Asset Link &#8599;</a>`);
   const el = document.getElementById("project-detail");
   el.innerHTML = `
     <div class="page-header"><button class="back-btn" onclick="closeProjectView()">← Projects</button>
-      <h2>${esc(p.name)}</h2>
+      <h2><input type="text" value="${esc(p.name)}" onchange="updateProjectField('name',this.value)" style="border:none;background:transparent;font:inherit;font-size:1.5em;font-weight:bold;padding:0;width:300px" class="editable-field"></h2>
       <div><button onclick="showAddEntryForm()">+ Add Entry</button>
       <button onclick="showImportForm()" class="secondary">Import docx</button>
+      <button onclick="exportProject('xlsx')" class="secondary">Export Excel</button>
+      <button onclick="exportProject('docx')" class="secondary">Export Word</button>
       <button onclick="deleteCurrentProject()" class="danger">Delete</button></div>
     </div>
     ${meta.length ? '<div class="project-meta" style="margin-bottom:12px;font-size:13px;color:#555;display:flex;gap:12px;align-items:center;flex-wrap:wrap">' + meta.join('') + '</div>' : ''}

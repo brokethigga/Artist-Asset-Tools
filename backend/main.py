@@ -758,3 +758,213 @@ def import_docx(file: UploadFile = File(...)):
                 "projected_hours": projected, "actual_hours": 0.0,
             })
     return entries
+
+
+# ── EXPORT ──
+
+@app.get("/api/projects/{p_id}/export")
+def export_project(p_id: int, format: str = "xlsx", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == p_id, Project.organization_id == user.organization_id).first()
+    if not project:
+        raise HTTPException(404)
+    entries = db.query(Entry).filter(Entry.project_id == p_id).order_by(Entry.element_name, Entry.id).all()
+    total_hours = sum(e.actual_hours or 0 for e in entries)
+
+    if format == "docx":
+        from docx import Document as DocxDocument
+        from docx.shared import Pt, Inches
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        import io
+
+        doc = DocxDocument()
+        doc.add_heading(project.name, level=1)
+        doc.add_paragraph("Choreography")
+        doc.add_heading(f"Animation list (total {total_hours:.0f} hr)", level=2)
+
+        # Group entries by element
+        elements = {}
+        for e in entries:
+            elements.setdefault(e.element_name, []).append(e)
+
+        # Summary table — grouped by element, merged element cells
+        summary_table = doc.add_table(rows=1, cols=3)
+        summary_table.style = 'Table Grid'
+        hdr = summary_table.rows[0].cells
+        hdr[0].text = "Element"
+        hdr[1].text = "Animation"
+        hdr[2].text = "Hours"
+        for cell in hdr:
+            for p in cell.paragraphs:
+                for r in p.runs:
+                    r.bold = True
+
+        # Track merge ranges: list of (start_row, end_row) for each element
+        merge_ranges = []
+        row_idx = 1  # start after header
+        for element_name, elem_entries in elements.items():
+            start_row = row_idx
+            for i, e in enumerate(elem_entries):
+                row = summary_table.add_row().cells
+                row[0].text = element_name if i == 0 else ""
+                row[1].text = e.animation_name or "Untitled"
+                row[2].text = f"{e.actual_hours or 0:.1f}"
+                row_idx += 1
+            if len(elem_entries) > 1:
+                merge_ranges.append((start_row, row_idx - 1))
+
+        # Merge element cells vertically
+        for start, end in merge_ranges:
+            summary_table.cell(start, 0).merge(summary_table.cell(end, 0))
+
+        doc.add_paragraph("")
+
+        # Per-element sections
+        for element_name, elem_entries in elements.items():
+            doc.add_heading(element_name, level=2)
+            for entry in elem_entries:
+                doc.add_heading(entry.animation_name or "Untitled", level=3)
+                tbl = doc.add_table(rows=4, cols=2)
+                tbl.style = 'Table Grid'
+
+                # Symbol row — image or text
+                tbl.rows[0].cells[0].text = "Symbol"
+                for r in tbl.rows[0].cells[0].paragraphs[0].runs:
+                    r.bold = True
+                img_cell = tbl.rows[0].cells[1]
+                images = db.query(EntryImage).filter(EntryImage.entry_id == entry.id).order_by(EntryImage.sort_order).first()
+                if images:
+                    img_path = os.path.join(UPLOAD_DIR, images.image_path)
+                    if os.path.exists(img_path):
+                        try:
+                            from PIL import Image as PilImage
+                            pil_img = PilImage.open(img_path)
+                            if pil_img.mode in ("RGBA", "P"):
+                                pil_img = pil_img.convert("RGB")
+                            png_buf = io.BytesIO()
+                            pil_img.save(png_buf, "PNG")
+                            png_buf.seek(0)
+                            p = img_cell.paragraphs[0]
+                            run = p.add_run()
+                            run.add_picture(png_buf, width=Inches(2))
+                        except Exception:
+                            img_cell.text = entry.element_name
+                    else:
+                        img_cell.text = entry.element_name
+                else:
+                    img_cell.text = entry.element_name
+
+                # Other rows
+                detail_rows = [
+                    ("Looping", "yes" if entry.looping else "no"),
+                    ("Duration", entry.duration or ""),
+                    ("Description", entry.description or ""),
+                ]
+                for i, (lbl, val) in enumerate(detail_rows, 1):
+                    tbl.rows[i].cells[0].text = lbl
+                    tbl.rows[i].cells[1].text = val
+                    for r in tbl.rows[i].cells[0].paragraphs[0].runs:
+                        r.bold = True
+                doc.add_paragraph("")
+
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+
+        from fastapi.responses import StreamingResponse
+        safe_name = re.sub(r'[^\w\s-]', '', project.name).strip().replace(' ', '_')
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}_choreography.docx"'},
+        )
+
+    # Default: Excel
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    import io
+
+    wb = Workbook()
+
+    # Summary sheet
+    ws = wb.active
+    ws.title = "Summary"
+    header_font = Font(bold=True, size=12)
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font_white = Font(bold=True, color="FFFFFF", size=11)
+
+    ws["A1"] = project.name
+    ws["A1"].font = Font(bold=True, size=14)
+    ws["A2"] = "Choreography"
+    ws["A3"] = f"Total Hours: {total_hours:.1f}"
+    ws["A4"] = f"Projected Hours: {sum(e.projected_hours or 0 for e in entries):.1f}"
+    if project.game_type:
+        ws["B2"] = f"Game Type: {project.game_type}"
+    if project.customer:
+        ws["B3"] = f"Customer: {project.customer}"
+    if project.deadline:
+        ws["B4"] = f"Deadline: {project.deadline}"
+
+    # Entries sheet
+    ws2 = wb.create_sheet("Entries")
+    headers = ["Element", "Animation", "Looping", "Duration", "Description", "Artist", "Phase", "Status", "Priority", "Projected Hours", "Actual Hours", "Flag"]
+    for col, h in enumerate(headers, 1):
+        cell = ws2.cell(row=1, column=col, value=h)
+        cell.font = header_font_white
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    for row_idx, e in enumerate(entries, 2):
+        ws2.cell(row=row_idx, column=1, value=e.element_name)
+        ws2.cell(row=row_idx, column=2, value=e.animation_name)
+        ws2.cell(row=row_idx, column=3, value="Yes" if e.looping else "No")
+        ws2.cell(row=row_idx, column=4, value=e.duration)
+        ws2.cell(row=row_idx, column=5, value=e.description)
+        ws2.cell(row=row_idx, column=6, value=e.artist)
+        ws2.cell(row=row_idx, column=7, value=e.phase)
+        ws2.cell(row=row_idx, column=8, value=e.status)
+        ws2.cell(row=row_idx, column=9, value=e.priority)
+        ws2.cell(row=row_idx, column=10, value=e.projected_hours or 0)
+        ws2.cell(row=row_idx, column=11, value=e.actual_hours or 0)
+        ws2.cell(row=row_idx, column=12, value="Flagged" if e.alert_flag else "")
+
+    for col in ws2.columns:
+        max_len = max(len(str(c.value or "")) for c in col)
+        ws2.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
+
+    # Rollup sheet
+    ws3 = wb.create_sheet("Rollup")
+    ws3["A1"] = "Element"
+    ws3["B1"] = "Projected"
+    ws3["C1"] = "Actual"
+    ws3["D1"] = "Entries"
+    for cell in ws3[1]:
+        cell.font = header_font_white
+        cell.fill = header_fill
+
+    by_element = {}
+    for e in entries:
+        by_element.setdefault(e.element_name, {"projected": 0, "actual": 0, "count": 0})
+        by_element[e.element_name]["projected"] += e.projected_hours or 0
+        by_element[e.element_name]["actual"] += e.actual_hours or 0
+        by_element[e.element_name]["count"] += 1
+
+    for row_idx, (name, data) in enumerate(sorted(by_element.items(), key=lambda x: -x[1]["actual"]), 2):
+        ws3.cell(row=row_idx, column=1, value=name)
+        ws3.cell(row=row_idx, column=2, value=data["projected"])
+        ws3.cell(row=row_idx, column=3, value=data["actual"])
+        ws3.cell(row=row_idx, column=4, value=data["count"])
+
+    for col in ws3.columns:
+        ws3.column_dimensions[col[0].column_letter].width = 15
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from fastapi.responses import StreamingResponse
+    safe_name = re.sub(r'[^\w\s-]', '', project.name).strip().replace(' ', '_')
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_export.xlsx"'},
+    )
