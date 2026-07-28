@@ -787,6 +787,18 @@ def export_project(p_id: int, format: str = "xlsx", user: User = Depends(get_cur
             elements.setdefault(e.element_name, []).append(e)
 
         # Summary table — grouped by element, merged element cells
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+
+        def set_cell_shading(cell, color_hex):
+            """Set background color on a table cell."""
+            tc = cell._tc
+            tcPr = tc.get_or_add_tcPr()
+            shading = OxmlElement('w:shd')
+            shading.set(qn('w:fill'), color_hex)
+            shading.set(qn('w:val'), 'clear')
+            tcPr.append(shading)
+
         summary_table = doc.add_table(rows=1, cols=3)
         summary_table.style = 'Table Grid'
         hdr = summary_table.rows[0].cells
@@ -794,25 +806,42 @@ def export_project(p_id: int, format: str = "xlsx", user: User = Depends(get_cur
         hdr[1].text = "Animation"
         hdr[2].text = "Hours"
         for cell in hdr:
+            set_cell_shading(cell, "B4C6E7")  # light blue
             for p in cell.paragraphs:
                 for r in p.runs:
                     r.bold = True
 
-        # Track merge ranges: list of (start_row, end_row) for each element
+        # Track merge ranges and total rows
         merge_ranges = []
         row_idx = 1  # start after header
         for element_name, elem_entries in elements.items():
             start_row = row_idx
+            elem_total = 0
             for i, e in enumerate(elem_entries):
                 row = summary_table.add_row().cells
                 row[0].text = element_name if i == 0 else ""
                 row[1].text = e.animation_name or "Untitled"
                 row[2].text = f"{e.actual_hours or 0:.1f}"
+                elem_total += e.actual_hours or 0
                 row_idx += 1
-            if len(elem_entries) > 1:
-                merge_ranges.append((start_row, row_idx - 1))
+            # Add total row (included in merge)
+            total_row = summary_table.add_row().cells
+            total_row[0].text = ""
+            total_row[1].text = f"{element_name} Total"
+            total_row[2].text = f"{elem_total:.1f}"
+            set_cell_shading(total_row[1], "D9E2F3")
+            set_cell_shading(total_row[2], "D9E2F3")
+            for p in total_row[1].paragraphs:
+                for r in p.runs:
+                    r.bold = True
+            for p in total_row[2].paragraphs:
+                for r in p.runs:
+                    r.bold = True
+            row_idx += 1
+            # Merge includes all rows: entries + total row
+            merge_ranges.append((start_row, row_idx - 1))
 
-        # Merge element cells vertically
+        # Merge element cells vertically (always, including single-entry elements)
         for start, end in merge_ranges:
             summary_table.cell(start, 0).merge(summary_table.cell(end, 0))
 
