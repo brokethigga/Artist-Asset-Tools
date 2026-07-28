@@ -389,7 +389,8 @@ function renderEntries() {
         !(e.artist||'').toLowerCase().includes(t) &&
         !(e.description||'').toLowerCase().includes(t) &&
         !(e.phase||'').toLowerCase().includes(t)) return false;
-    if (f.type && e.phase !== f.type) return false;
+    const entryPhase = e.phase || 'Animating';
+    if (f.type && entryPhase !== f.type) return false;
     if (f.status && e.status !== f.status) return false;
     if (f.priority && e.priority !== f.priority) return false;
     if (f.flag === 'yes' && !e.alert_flag) return false;
@@ -431,7 +432,7 @@ function renderEntries() {
           <button onclick="showAddEntryForm('${esc(element)}');event.stopPropagation()">+ State</button>
           <button onclick="deleteElement('${esc(element)}');event.stopPropagation()">×</button></div>
       </div>
-      <div class="type-summary">${TYPES.map(t => `<span><strong>${t}</strong>: ${entries.filter(e => e.phase === t).reduce((s, e) => s + (e.actual_hours || 0), 0).toFixed(2)}h</span>`).join(' | ')}</div>
+      <div class="type-summary">${TYPES.map(t => `<span><strong>${t}</strong>: ${entries.filter(e => (e.phase || 'Animating') === t).reduce((s, e) => s + (e.actual_hours || 0), 0).toFixed(2)}h</span>`).join(' | ')}</div>
       <div class="entries-scroll">
       <table class="entry-table">
         <thead><tr>
@@ -463,7 +464,7 @@ function renderEntries() {
               : '';
             return `<tr class="${e.alert_flag ? 'flagged' : ''}">
               ${stateCell}
-              <td class="col-type"><select onchange="patchEntry(${e.id},'phase',this.value)">${TYPES.map(p => `<option value="${p}" ${e.phase === p ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
+              <td class="col-type"><select onchange="patchEntry(${e.id},'phase',this.value)">${TYPES.map(p => `<option value="${p}" ${(e.phase || 'Animating') === p ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
               <td class="col-loop"><button class="loop-toggle ${e.looping ? 'on' : ''}" onclick="toggleLoop(${e.id})">${e.looping ? 'Loop' : '—'}</button></td>
               <td class="col-dur"><input value="${esc(e.duration)}" onchange="patchEntry(${e.id},'duration',this.value)"></td>
               <td class="col-desc"><textarea oninput="autoGrow(this)" onchange="patchEntry(${e.id},'description',this.value)">${esc(e.description)}</textarea></td>
@@ -598,7 +599,7 @@ function refreshTypeSummaries() {
     const entries = currentEntries.filter(e => e.element_name === elementName);
     const typeHours = {};
     for (const e of entries) {
-      const t = e.phase || 'Unset';
+      const t = e.phase || 'Animating';
       typeHours[t] = (typeHours[t] || 0) + (e.actual_hours || 0);
     }
     const summary = section.querySelector('.type-summary');
