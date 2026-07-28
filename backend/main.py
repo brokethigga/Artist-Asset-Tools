@@ -912,6 +912,8 @@ def export_project(p_id: int, format: str = "xlsx", user: User = Depends(get_cur
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(["Element", "Animation", "Looping", "Duration", "Description", "Artist", "Phase", "Status", "Priority", "Projected Hours", "Actual Hours", "Flag"])
+        total_projected = 0
+        total_actual = 0
         for e in entries:
             writer.writerow([
                 e.element_name, e.animation_name, "Yes" if e.looping else "No",
@@ -919,6 +921,9 @@ def export_project(p_id: int, format: str = "xlsx", user: User = Depends(get_cur
                 e.priority, e.projected_hours or 0, e.actual_hours or 0,
                 "Flagged" if e.alert_flag else "",
             ])
+            total_projected += e.projected_hours or 0
+            total_actual += e.actual_hours or 0
+        writer.writerow(["TOTAL", "", "", "", "", "", "", "", "", f"{total_projected:.1f}", f"{total_actual:.1f}", ""])
         buf.seek(0)
         from fastapi.responses import StreamingResponse
         safe_name = re.sub(r'[^\w\s-]', '', project.name).strip().replace(' ', '_')
@@ -976,6 +981,18 @@ def export_project(p_id: int, format: str = "xlsx", user: User = Depends(get_cur
         ws2.cell(row=row_idx, column=10, value=e.projected_hours or 0)
         ws2.cell(row=row_idx, column=11, value=e.actual_hours or 0)
         ws2.cell(row=row_idx, column=12, value="Flagged" if e.alert_flag else "")
+
+    # Total row
+    total_row = len(entries) + 2
+    total_fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
+    ws2.cell(row=total_row, column=1, value="TOTAL").font = Font(bold=True)
+    ws2.cell(row=total_row, column=1).fill = total_fill
+    ws2.cell(row=total_row, column=10, value=sum(e.projected_hours or 0 for e in entries)).font = Font(bold=True)
+    ws2.cell(row=total_row, column=10).fill = total_fill
+    ws2.cell(row=total_row, column=11, value=sum(e.actual_hours or 0 for e in entries)).font = Font(bold=True)
+    ws2.cell(row=total_row, column=11).fill = total_fill
+    for col_idx in range(2, 13):
+        ws2.cell(row=total_row, column=col_idx).fill = total_fill
 
     for col in ws2.columns:
         max_len = max(len(str(c.value or "")) for c in col)
