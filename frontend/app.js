@@ -328,6 +328,7 @@ function renderProjectDetail() {
       <div><button onclick="showAddEntryForm()">+ Add Entry</button>
       <button onclick="showImportForm()" class="secondary">Import docx</button>
       <button onclick="exportProject('xlsx')" class="secondary">Export Excel</button>
+      <button onclick="exportProject('csv')" class="secondary">Export CSV</button>
       <button onclick="exportProject('docx')" class="secondary">Export Word</button>
       <button onclick="deleteCurrentProject()" class="danger">Delete</button></div>
     </div>

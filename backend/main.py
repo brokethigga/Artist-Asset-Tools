@@ -907,6 +907,27 @@ def export_project(p_id: int, format: str = "xlsx", user: User = Depends(get_cur
             headers={"Content-Disposition": f'attachment; filename="{safe_name}_choreography.docx"'},
         )
 
+    if format == "csv":
+        import csv, io
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["Element", "Animation", "Looping", "Duration", "Description", "Artist", "Phase", "Status", "Priority", "Projected Hours", "Actual Hours", "Flag"])
+        for e in entries:
+            writer.writerow([
+                e.element_name, e.animation_name, "Yes" if e.looping else "No",
+                e.duration, e.description, e.artist, e.phase, e.status,
+                e.priority, e.projected_hours or 0, e.actual_hours or 0,
+                "Flagged" if e.alert_flag else "",
+            ])
+        buf.seek(0)
+        from fastapi.responses import StreamingResponse
+        safe_name = re.sub(r'[^\w\s-]', '', project.name).strip().replace(' ', '_')
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}_export.csv"'},
+        )
+
     # Default: Excel
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
