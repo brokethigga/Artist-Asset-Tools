@@ -39,6 +39,7 @@ function closeModal() {
 }
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtDate(d) { if (!d) return ''; const dt = new Date(d); return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); }
 
 // ========== BLUEPRINTS ==========
 let blueprints = [];
@@ -220,7 +221,8 @@ async function loadProjects() {
         <p>${t ? "Template: " + esc(t.name) : "No template"}</p>
         <div>${tags.map(t => `<span class="tag-badge">${esc(t.name)}</span>`).join(' ')}</div>
         <div class="progress-bar" id="prog-${p.id}"><div class="progress-fill" style="width:0%"></div></div>
-        <div class="meta"><span class="badge ${p.status}">${p.status}</span> ${new Date(p.created_at).toLocaleDateString()}</div>
+        <div class="meta"><span class="badge ${p.status}">${p.status}</span></div>
+        <div class="meta" style="font-size:12px;color:#777">Created ${fmtDate(p.created_at)}${p.deadline ? ' · <span style="color:#c62828">Due ' + fmtDate(p.deadline) + '</span>' : ''}</div>
       </div>`;
     }).join("") + '</div>' : '<p style="color:#999">No projects yet.</p>'}
     </div>
@@ -290,6 +292,11 @@ async function openProject(id) {
   renderProjectDetail();
 }
 
+async function updateProjectDeadline(val) {
+  await api("/projects/" + currentProject.id, { method: "PUT", body: JSON.stringify({ deadline: val || null }) });
+  currentProject.deadline = val || null;
+}
+
 function closeProjectView() {
   document.getElementById("project-list").classList.remove("hidden");
   document.getElementById("project-detail").innerHTML = "";
@@ -303,7 +310,8 @@ function renderProjectDetail() {
   const meta = [];
   if (p.game_type) meta.push(`<span class="badge">${esc(p.game_type)}</span>`);
   if (p.customer) meta.push(`<span>Client: ${esc(p.customer)}</span>`);
-  if (p.deadline) meta.push(`<span>Deadline: ${new Date(p.deadline).toLocaleDateString()}</span>`);
+  if (p.deadline) meta.push(`<span>Deadline: <input type="date" value="${esc(p.deadline || '')}" onchange="updateProjectDeadline(this.value)" style="border:none;background:transparent;font:inherit;color:inherit;padding:0;cursor:pointer"></span>`);
+  else meta.push(`<span>Deadline: <input type="date" value="" onchange="updateProjectDeadline(this.value)" style="border:none;background:transparent;font:inherit;color:#999;padding:0;cursor:pointer"></span>`);
   if (p.asset_link) meta.push(`<a href="${esc(p.asset_link)}" target="_blank" style="color:#1565c0">Asset Link &#8599;</a>`);
   const el = document.getElementById("project-detail");
   el.innerHTML = `
