@@ -113,7 +113,7 @@ function fmtDate(d) { if (!d) return ''; const dt = new Date(d); return dt.toLoc
 let blueprints = [];
 
 async function loadBlueprints() {
-  blueprints = await api("/blueprints");
+  blueprints = (await api("/blueprints").catch(() => [])) || [];
   const el = document.getElementById("tab-blueprints");
   el.innerHTML = `
     <div class="page-header"><h2>Blueprints</h2><button onclick="showBlueprintForm()">+ New Blueprint</button></div>
@@ -189,8 +189,8 @@ async function deleteBlueprint(id) {
 let templates = [];
 
 async function loadTemplates() {
-  blueprints = await api("/blueprints");
-  templates = await api("/templates");
+  blueprints = (await api("/blueprints").catch(() => [])) || [];
+  templates = (await api("/templates").catch(() => [])) || [];
   const el = document.getElementById("tab-templates");
   el.innerHTML = `
     <div class="page-header"><h2>Templates</h2><button onclick="showTemplateForm()">+ New Template</button></div>
@@ -267,8 +267,8 @@ function filterProjects(nameVal) {
 }
 
 async function loadProjects() {
-  templates = await api("/templates");
-  projects = await api("/projects");
+  templates = (await api("/templates").catch(() => [])) || [];
+  projects = (await api("/projects").catch(() => [])) || [];
   // Fetch tags for all projects
   const projectTags = {};
   for (const p of projects) {
