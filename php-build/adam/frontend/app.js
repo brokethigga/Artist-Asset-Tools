@@ -95,6 +95,7 @@ function initApp() {
     document.getElementById("tab-" + b.dataset.tab).classList.add("active");
     loadTab(b.dataset.tab);
   }));
+  loadTab("projects");
 }
 
 function loadTab(t) {
