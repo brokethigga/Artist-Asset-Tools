@@ -198,29 +198,42 @@ function run_text(DOMXPath $xp, DOMElement $run): string
 }
 
 /**
- * Extract a named part from a .docx (zip) archive.
+ * Extract a named part from a .docx (zip) archive using manual binary zip reading.
  */
 function read_docx_part(string $docxPath, string $part): ?string
 {
-    // PharData needs a zip extension to be sure of format
-    $tmpZip = tempnam(sys_get_temp_dir(), 'docx_') . '.zip';
-    if (!@copy($docxPath, $tmpZip)) {
+    $zipData = file_get_contents($docxPath);
+    if ($zipData === false) {
         return null;
     }
-    try {
-        if (!class_exists('PharData')) {
-            return null;
+
+    $pos = 0;
+    $len = strlen($zipData);
+
+    while ($pos + 30 <= $len) {
+        $sig = unpack('V', substr($zipData, $pos, 4))[1];
+        if ($sig !== 0x04034b50) {
+            break;
         }
-        $phar = new PharData($tmpZip);
-        if (!isset($phar[$part])) {
-            return null;
+
+        $compressed = unpack('v', substr($zipData, $pos + 8, 2))[1];
+        $compSize   = unpack('V', substr($zipData, $pos + 18, 4))[1];
+        $nameLen    = unpack('v', substr($zipData, $pos + 26, 2))[1];
+        $extraLen   = unpack('v', substr($zipData, $pos + 28, 2))[1];
+        $name       = substr($zipData, $pos + 30, $nameLen);
+        $dataStart  = $pos + 30 + $nameLen + $extraLen;
+        $content    = substr($zipData, $dataStart, $compSize);
+
+        if ($name === $part) {
+            if ($compressed === 0) {
+                return $content;
+            }
+            $decompressed = @gzuncompress($content);
+            return ($decompressed !== false) ? $decompressed : $content;
         }
-        return $phar[$part]->getContent();
-    } catch (Throwable $e) {
-        return null;
-    } finally {
-        if (is_file($tmpZip)) {
-            @unlink($tmpZip);
-        }
+
+        $pos = $dataStart + $compSize;
     }
+
+    return null;
 }
