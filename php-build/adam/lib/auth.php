@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 /**
  * Authentication: Google OAuth primary, email whitelist fallback.
- * Sessions via PHP native session.
+ * Uses a signed cookie token (stateless, no server-side sessions) to avoid
+ * SQLite locking issues on shared hosting under concurrent requests.
  */
 
 // ── Config ──
@@ -11,62 +12,85 @@ $oauthConfigFile = APP_ROOT . '/config/oauth.php';
 if (is_file($oauthConfigFile)) {
     $oauthConfig = require $oauthConfigFile;
 } else {
-    $oauthConfig = ['client_id' => '', 'client_secret' => ''];
+    $oauthConfig = ['client_id' => '', 'client_secret' => '', 'auth_secret' => 'choreo-default-secret-change-me'];
 }
 define('GOOGLE_CLIENT_ID', $oauthConfig['client_id']);
 define('GOOGLE_CLIENT_SECRET', $oauthConfig['client_secret']);
+define('AUTH_SECRET', $oauthConfig['auth_secret'] ?? 'choreo-default-secret-change-me');
 define('GOOGLE_SCOPES', 'email profile');
 
-// ── Database-backed session handler (reliable on shared hosting) ──
-function db_sess_open(string $path, string $name): bool { return true; }
-function db_sess_close(): bool { return true; }
-function db_sess_read(string $id): string {
-    $row = db_row('SELECT data FROM sessions WHERE id = ' . db_quote($id));
-    return $row ? (string)$row['data'] : '';
-}
-function db_sess_write(string $id, string $data): bool {
-    $expires = gmdate('Y-m-d H:i:s', time() + 86400 * 30);
-    db_exec("INSERT OR REPLACE INTO sessions (id, data, expires_at) VALUES ("
-        . db_quote($id) . ', ' . db_quote($data) . ", '" . $expires . "')");
-    return true;
-}
-function db_sess_destroy(string $id): bool {
-    db_exec('DELETE FROM sessions WHERE id = ' . db_quote($id));
-    return true;
-}
-function db_sess_gc(int $maxlifetime): int {
-    db_exec("DELETE FROM sessions WHERE expires_at < '" . gmdate('Y-m-d H:i:s') . "'");
-    return 1;
-}
-session_set_save_handler('db_sess_open', 'db_sess_close', 'db_sess_read', 'db_sess_write', 'db_sess_destroy', 'db_sess_gc');
-
-function google_redirect_uri(): string
+// ── Signed token helpers ──
+function base64url_encode(string $data): string
 {
-    $host = $_SERVER['HTTP_HOST'] ?? 'siamkoala.com';
-    return 'https://' . $host . APP_BASE . '/auth/google/callback';
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
 }
 
-function session_start_safe(): void
+function base64url_decode(string $data): string
 {
-    if (session_status() === PHP_SESSION_NONE) {
-        session_set_cookie_params([
-            'lifetime' => 86400 * 30,
-            'path' => APP_BASE ?: '/',
-            'httponly' => true,
-            'samesite' => 'Lax',
-        ]);
-        session_start();
+    return (string)base64_decode(strtr($data, '-_', '+/'), true);
+}
+
+function make_token(int $userId): string
+{
+    $payload = json_encode(['uid' => $userId, 'exp' => time() + 86400 * 30]);
+    $sig = hash_hmac('sha256', $payload, AUTH_SECRET, true);
+    return base64url_encode($payload) . '.' . base64url_encode($sig);
+}
+
+function verify_token(string $token): ?int
+{
+    $parts = explode('.', $token);
+    if (count($parts) !== 2) {
+        return null;
     }
+    $payload = base64url_decode($parts[0]);
+    $sig = base64url_decode($parts[1]);
+    $expected = hash_hmac('sha256', $payload, AUTH_SECRET, true);
+    if (!hash_equals($expected, $sig)) {
+        return null;
+    }
+    $data = json_decode($payload, true);
+    if (!$data || !isset($data['uid']) || (int)($data['exp'] ?? 0) < time()) {
+        return null;
+    }
+    return (int)$data['uid'];
+}
+
+function set_auth_cookie(int $userId): void
+{
+    $ok = setcookie('auth_token', make_token($userId), [
+        'expires' => time() + 86400 * 30,
+        'path' => APP_BASE ?: '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    if (!$ok) {
+        error_log('Failed to set auth cookie');
+    }
+}
+
+function clear_auth_cookie(): void
+{
+    setcookie('auth_token', '', [
+        'expires' => 1,
+        'path' => APP_BASE ?: '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
 }
 
 function current_user_array(): ?array
 {
-    session_start_safe();
-    if (isset($_SESSION['user_id'])) {
-        $user = db_row('SELECT * FROM users WHERE id = ' . (int)$_SESSION['user_id']);
-        if ($user) {
-            return normalize_user($user);
-        }
+    if (empty($_COOKIE['auth_token'])) {
+        return null;
+    }
+    $uid = verify_token($_COOKIE['auth_token']);
+    if ($uid === null) {
+        return null;
+    }
+    $user = db_row('SELECT * FROM users WHERE id = ' . $uid);
+    if ($user) {
+        return normalize_user($user);
     }
     return null;
 }
@@ -112,6 +136,12 @@ function normalize_user(array $row): array
 
 // ── Google OAuth ──
 
+function google_redirect_uri(): string
+{
+    $host = $_SERVER['HTTP_HOST'] ?? 'siamkoala.com';
+    return 'https://' . $host . APP_BASE . '/auth/google/callback';
+}
+
 function google_auth_redirect(): void
 {
     $params = http_build_query([
@@ -132,27 +162,19 @@ function google_auth_callback(): void
         throw new ApiError('No code received from Google', 400);
     }
 
-    // Exchange code for tokens
     $tokenData = google_exchange_code($_GET['code']);
     if (empty($tokenData['access_token'])) {
         throw new ApiError('Failed to get access token from Google', 400);
     }
 
-    // Get user info
     $googleUser = google_get_user_info($tokenData['access_token']);
     if (empty($googleUser['id']) || empty($googleUser['email'])) {
         throw new ApiError('Failed to get user info from Google', 400);
     }
 
-    // Find or create user
     $user = find_or_create_google_user($googleUser);
+    set_auth_cookie($user['id']);
 
-    // Set session
-    session_start_safe();
-    $_SESSION['user_id'] = $user['id'];
-    $_SESSION['login_method'] = 'google';
-
-    // Redirect to app
     header('Location: ' . APP_BASE);
     exit;
 }
@@ -194,18 +216,13 @@ function find_or_create_google_user(array $googleUser): array
     $email = $googleUser['email'];
     $name = $googleUser['name'] ?? $email;
 
-    // Check if user exists by google_sub
     $user = db_row('SELECT * FROM users WHERE google_sub = ' . db_quote($googleSub));
     if ($user) {
-        // Update last login
         db_exec('UPDATE users SET last_login = ' . db_quote(now_iso()) . ' WHERE id = ' . $user['id']);
         return normalize_user(db_row('SELECT * FROM users WHERE id = ' . $user['id']));
     }
 
-    // Check if email is whitelisted
     $approved = is_email_whitelisted($email) ? 1 : 0;
-
-    // Create new user
     $orgId = ensure_default_org();
     $id = db_insert("INSERT INTO users (organization_id, email, name, google_sub, role, approved, created_at, last_login) VALUES ("
         . $orgId . ', ' . db_quote($email) . ', ' . db_quote($name) . ', ' . db_quote($googleSub)
@@ -230,12 +247,10 @@ function email_login(string $email): array
         throw new ApiError('Email required', 400);
     }
 
-    // Check whitelist
     if (!is_email_whitelisted($email)) {
         throw new ApiError('Email not authorized. Contact admin to get access.', 403);
     }
 
-    // Find or create user
     $user = db_row('SELECT * FROM users WHERE LOWER(email) = ' . db_quote($email));
     if ($user) {
         db_exec('UPDATE users SET last_login = ' . db_quote(now_iso()) . ' WHERE id = ' . $user['id']);
@@ -249,18 +264,13 @@ function email_login(string $email): array
         $user = db_row('SELECT * FROM users WHERE id = ' . $id);
     }
 
-    // Set session
-    session_start_safe();
-    $_SESSION['user_id'] = $user['id'];
-    $_SESSION['login_method'] = 'email';
-
+    set_auth_cookie($user['id']);
     return normalize_user($user);
 }
 
 function logout(): void
 {
-    session_start_safe();
-    session_destroy();
+    clear_auth_cookie();
     header('Location: ' . APP_BASE);
     exit;
 }
