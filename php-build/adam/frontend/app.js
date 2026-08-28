@@ -217,13 +217,14 @@ async function loadProjects() {
     ${projects.length ? '<div class="grid">' + projects.map(p => {
       const t = templates.find(x => x.id === p.template_id);
       const tags = projectTags[p.id] || [];
-      return `<div class="card" data-name="${esc(p.name.toLowerCase())}" data-tags="${esc(tags.map(t => t.name).join(' ').toLowerCase())}" onclick="openProject(${p.id})" style="cursor:pointer">
+      return `<div class="card" data-name="${esc(p.name.toLowerCase())}" data-tags="${esc(tags.map(t => t.name).join(' ').toLowerCase())}" onclick="openProject(${p.id})" style="cursor:pointer;position:relative">
         <h3>${esc(p.name)}</h3>
         <p>${t ? "Template: " + esc(t.name) : "No template"}</p>
         <div>${tags.map(t => `<span class="tag-badge">${esc(t.name)}</span>`).join(' ')}</div>
         <div class="progress-bar" id="prog-${p.id}"><div class="progress-fill" style="width:0%"></div></div>
         <div class="meta"><span class="badge ${p.status}">${p.status}</span></div>
         <div class="meta" style="font-size:12px;color:#777">Created ${fmtDate(p.created_at)}${p.deadline ? ' · <span style="color:#c62828">Due ' + fmtDate(p.deadline) + '</span>' : ''}</div>
+        <button onclick="event.stopPropagation();deleteProject(${p.id},'${esc(p.name)}')" class="danger" style="position:absolute;top:8px;right:8px;padding:4px 8px;font-size:11px">Delete</button>
       </div>`;
     }).join("") + '</div>' : '<p style="color:#999">No projects yet.</p>'}
     </div>
@@ -343,7 +344,8 @@ function renderProjectDetail() {
     <div class="page-header"><button class="back-btn" onclick="closeProjectView()">← Projects</button>
       <h2><input type="text" value="${esc(p.name)}" onchange="updateProjectField('name',this.value)" style="border:none;background:transparent;font:inherit;font-size:1.5em;font-weight:bold;padding:0;width:300px" class="editable-field"></h2>
       <div><button onclick="showAddEntryForm()">+ Add Entry</button>
-      <button onclick="showImportForm()" class="secondary">Import docx</button>
+      <!-- Import docx hidden — manual zip reader broken, revisit later -->
+      <!-- <button onclick="showImportForm()" class="secondary">Import docx</button> -->
       <button onclick="exportProject('xlsx')" class="secondary">Export Excel</button>
       <button onclick="exportProject('csv')" class="secondary">Export CSV</button>
       <button onclick="exportProject('docx')" class="secondary">Export Word</button>
@@ -668,6 +670,12 @@ async function deleteCurrentProject() {
   if (!confirm(`Delete "${currentProject.name}"?`)) return;
   await api("/projects/" + currentProject.id, { method: "DELETE" });
   closeProjectView();
+}
+
+async function deleteProject(id, name) {
+  if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+  await api("/projects/" + id, { method: "DELETE" });
+  renderProjects();
 }
 
 async function refreshProjectView() {
