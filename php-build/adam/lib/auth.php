@@ -19,9 +19,8 @@ define('GOOGLE_SCOPES', 'email profile');
 
 function google_redirect_uri(): string
 {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'siamkoala.com';
-    return $scheme . '://' . $host . APP_BASE . '/auth/google/callback';
+    return 'https://' . $host . APP_BASE . '/auth/google/callback';
 }
 
 function session_start_safe(): void
