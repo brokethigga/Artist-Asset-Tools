@@ -149,6 +149,12 @@ function bootstrap_db(SQLite3 $db): void
         created_at TEXT
     )');
 
+    $db->exec('CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        data TEXT DEFAULT "",
+        expires_at TEXT
+    )');
+
     // Seed organization
     $count = (int)db_scalar('SELECT COUNT(*) FROM organizations WHERE id = 1');
     if ($count === 0) {

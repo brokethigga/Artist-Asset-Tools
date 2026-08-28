@@ -17,6 +17,29 @@ define('GOOGLE_CLIENT_ID', $oauthConfig['client_id']);
 define('GOOGLE_CLIENT_SECRET', $oauthConfig['client_secret']);
 define('GOOGLE_SCOPES', 'email profile');
 
+// ── Database-backed session handler (reliable on shared hosting) ──
+function db_sess_open(string $path, string $name): bool { return true; }
+function db_sess_close(): bool { return true; }
+function db_sess_read(string $id): string {
+    $row = db_row('SELECT data FROM sessions WHERE id = ' . db_quote($id));
+    return $row ? (string)$row['data'] : '';
+}
+function db_sess_write(string $id, string $data): bool {
+    $expires = gmdate('Y-m-d H:i:s', time() + 86400 * 30);
+    db_exec("INSERT OR REPLACE INTO sessions (id, data, expires_at) VALUES ("
+        . db_quote($id) . ', ' . db_quote($data) . ", '" . $expires . "')");
+    return true;
+}
+function db_sess_destroy(string $id): bool {
+    db_exec('DELETE FROM sessions WHERE id = ' . db_quote($id));
+    return true;
+}
+function db_sess_gc(int $maxlifetime): int {
+    db_exec("DELETE FROM sessions WHERE expires_at < '" . gmdate('Y-m-d H:i:s') . "'");
+    return 1;
+}
+session_set_save_handler('db_sess_open', 'db_sess_close', 'db_sess_read', 'db_sess_write', 'db_sess_destroy', 'db_sess_gc');
+
 function google_redirect_uri(): string
 {
     $host = $_SERVER['HTTP_HOST'] ?? 'siamkoala.com';
@@ -26,13 +49,6 @@ function google_redirect_uri(): string
 function session_start_safe(): void
 {
     if (session_status() === PHP_SESSION_NONE) {
-        $sessDir = APP_ROOT . '/data/sessions';
-        if (!is_dir($sessDir)) {
-            @mkdir($sessDir, 0755, true);
-        }
-        if (is_dir($sessDir) && is_writable($sessDir)) {
-            session_save_path($sessDir);
-        }
         session_set_cookie_params([
             'lifetime' => 86400 * 30,
             'path' => APP_BASE ?: '/',
