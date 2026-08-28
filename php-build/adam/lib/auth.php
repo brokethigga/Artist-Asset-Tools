@@ -26,6 +26,13 @@ function google_redirect_uri(): string
 function session_start_safe(): void
 {
     if (session_status() === PHP_SESSION_NONE) {
+        $sessDir = APP_ROOT . '/data/sessions';
+        if (!is_dir($sessDir)) {
+            @mkdir($sessDir, 0755, true);
+        }
+        if (is_dir($sessDir) && is_writable($sessDir)) {
+            session_save_path($sessDir);
+        }
         session_set_cookie_params([
             'lifetime' => 86400 * 30,
             'path' => APP_BASE ?: '/',

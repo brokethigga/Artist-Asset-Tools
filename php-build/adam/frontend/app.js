@@ -5,6 +5,7 @@ const PRIORITIES = ['Low','Medium','High'];
 const TYPES = ['Animating','Drawing'];
 
 let currentUser = null;
+let redirectedToLogin = false;
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
@@ -13,14 +14,15 @@ async function api(path, opts = {}) {
   });
   if (res.status === 401) {
     const err = await res.json().catch(() => ({}));
-    if (err.auth_required) {
+    if (err.auth_required && !redirectedToLogin) {
+      redirectedToLogin = true;
       showLogin();
-      throw err;
     }
+    throw err;
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    alert(err.detail || "Request failed");
+    if (path !== '/auth/me') alert(err.detail || "Request failed");
     throw err;
   }
   return res.status === 204 ? null : res.json();
@@ -41,6 +43,7 @@ async function checkAuth() {
   try {
     const user = await api("/auth/me");
     if (user && user.approved) {
+      redirectedToLogin = false;
       currentUser = user;
       document.getElementById('user-name').textContent = user.name || user.email;
       showApp();
