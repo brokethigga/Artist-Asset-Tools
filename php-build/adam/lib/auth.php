@@ -27,7 +27,12 @@ function base64url_encode(string $data): string
 
 function base64url_decode(string $data): string
 {
-    return (string)base64_decode(strtr($data, '-_', '+/'), true);
+    $data = strtr($data, '-_', '+/');
+    $pad = strlen($data) % 4;
+    if ($pad) {
+        $data .= str_repeat('=', 4 - $pad);
+    }
+    return (string)base64_decode($data, true);
 }
 
 function make_token(int $userId): string

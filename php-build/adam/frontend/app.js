@@ -84,7 +84,10 @@ function logout() {
 }
 
 // ── Init ──
+let appInitialized = false;
 function initApp() {
+  if (appInitialized) return;
+  appInitialized = true;
   document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
     document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
@@ -92,7 +95,6 @@ function initApp() {
     document.getElementById("tab-" + b.dataset.tab).classList.add("active");
     loadTab(b.dataset.tab);
   }));
-checkAuth();
 }
 
 function loadTab(t) {
