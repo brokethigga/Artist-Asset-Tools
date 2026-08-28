@@ -4,11 +4,20 @@ const STATUSES = ['Not Started','In Progress','Review','Done'];
 const PRIORITIES = ['Low','Medium','High'];
 const TYPES = ['Animating','Drawing'];
 
+let currentUser = null;
+
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
     headers: !(opts.body instanceof FormData) ? { "Content-Type": "application/json", ...opts.headers } : opts.headers,
     ...opts,
   });
+  if (res.status === 401) {
+    const err = await res.json().catch(() => ({}));
+    if (err.auth_required) {
+      showLogin();
+      throw err;
+    }
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     alert(err.detail || "Request failed");
@@ -17,13 +26,71 @@ async function api(path, opts = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
-  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-  b.classList.add("active");
-  document.getElementById("tab-" + b.dataset.tab).classList.add("active");
-  loadTab(b.dataset.tab);
-}));
+// ── Auth ──
+function showLogin() {
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('app-screen').classList.add('hidden');
+}
+
+function showApp() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('hidden');
+}
+
+async function checkAuth() {
+  try {
+    const user = await api("/auth/me");
+    if (user && user.approved) {
+      currentUser = user;
+      document.getElementById('user-name').textContent = user.name || user.email;
+      showApp();
+      initApp();
+      return;
+    }
+  } catch (e) {}
+  showLogin();
+}
+
+async function emailLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const errEl = document.getElementById('login-error');
+  errEl.classList.add('hidden');
+  try {
+    const user = await api("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+    if (user && user.approved) {
+      currentUser = user;
+      document.getElementById('user-name').textContent = user.name || user.email;
+      showApp();
+      initApp();
+    } else {
+      errEl.textContent = "Account not approved. Contact admin.";
+      errEl.classList.remove('hidden');
+    }
+  } catch (err) {
+    errEl.textContent = err.detail || "Login failed";
+    errEl.classList.remove('hidden');
+  }
+}
+
+function logout() {
+  window.location.href = APP_BASE + "/auth/logout";
+}
+
+// ── Init ──
+function initApp() {
+  document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+    b.classList.add("active");
+    document.getElementById("tab-" + b.dataset.tab).classList.add("active");
+    loadTab(b.dataset.tab);
+  }));
+checkAuth();
+}
 
 function loadTab(t) {
   if (t === "blueprints") loadBlueprints();

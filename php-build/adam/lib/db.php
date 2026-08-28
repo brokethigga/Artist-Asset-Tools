@@ -142,11 +142,25 @@ function bootstrap_db(SQLite3 $db): void
         created_at TEXT
     )');
 
+    $db->exec('CREATE TABLE IF NOT EXISTS whitelisted_emails (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        added_by TEXT DEFAULT "",
+        created_at TEXT
+    )');
+
     // Seed organization
     $count = (int)db_scalar('SELECT COUNT(*) FROM organizations WHERE id = 1');
     if ($count === 0) {
         $now = now_iso();
         $db->exec("INSERT INTO organizations (id, name, plan, created_at) VALUES (1, 'Internal', 'internal', '$now')");
+    }
+
+    // Seed initial whitelisted admin email
+    $wlCount = (int)db_scalar('SELECT COUNT(*) FROM whitelisted_emails');
+    if ($wlCount === 0) {
+        $now = now_iso();
+        $db->exec("INSERT INTO whitelisted_emails (email, added_by, created_at) VALUES ('adam@siamkoala.com', 'system', '$now')");
     }
 
     seed_blueprints($db);

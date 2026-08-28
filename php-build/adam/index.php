@@ -50,6 +50,17 @@ if ($rel === '' || $rel === 'index.php' || $rel === 'index.html') {
     serve_frontend();
 }
 
+// ── Auth routes (non-API, redirect-based) ──
+if ($rel === 'auth/google') {
+    google_auth_redirect();
+}
+if ($rel === 'auth/google/callback') {
+    google_auth_callback();
+}
+if ($rel === 'auth/logout') {
+    logout();
+}
+
 if (strncmp($rel, 'api/', 4) === 0) {
     $apiPath = substr($rel, 4);
     handle_api($method, $apiPath);
@@ -111,6 +122,10 @@ function handle_api(string $method, string $apiPath): void
                 json_out(['ok' => true]);
                 break;
 
+            case 'auth':
+                handle_auth_api($method, $segments);
+                break;
+
             case 'me':
                 require_auth();
                 json_out(current_user_array());
@@ -152,5 +167,54 @@ function handle_api(string $method, string $apiPath): void
     } catch (Throwable $e) {
         error_log('API error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         json_out(['detail' => 'Internal server error'], 500);
+    }
+}
+
+function handle_auth_api(string $method, array $segments): void
+{
+    $action = $segments[1] ?? '';
+
+    switch ($action) {
+        case 'login':
+            // Email whitelist login
+            if ($method !== 'POST') {
+                throw new ApiError('Method not allowed', 405);
+            }
+            $input = json_decode(file_get_contents('php://input'), true) ?: [];
+            $email = trim($input['email'] ?? '');
+            $user = email_login($email);
+            json_out($user);
+            break;
+
+        case 'me':
+            $user = current_user_array();
+            if ($user === null) {
+                json_out(null);
+            } else {
+                json_out($user);
+            }
+            break;
+
+        case 'whitelist':
+            // Admin-only: manage whitelisted emails
+            require_admin();
+            if ($method === 'GET') {
+                $rows = db_query('SELECT * FROM whitelisted_emails ORDER BY created_at DESC');
+                json_out($rows);
+            } elseif ($method === 'POST') {
+                $input = json_decode(file_get_contents('php://input'), true) ?: [];
+                $email = trim($input['email'] ?? '');
+                add_whitelisted_email($email, require_admin()['email']);
+                json_out(['ok' => true]);
+            } elseif ($method === 'DELETE') {
+                $id = (int)($segments[2] ?? 0);
+                if ($id <= 0) throw new ApiError('Invalid ID', 400);
+                remove_whitelisted_email($id);
+                json_out(['ok' => true]);
+            }
+            break;
+
+        default:
+            throw new ApiError('Not found', 404);
     }
 }
