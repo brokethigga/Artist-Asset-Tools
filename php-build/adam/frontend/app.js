@@ -113,7 +113,8 @@ function fmtDate(d) { if (!d) return ''; const dt = new Date(d); return dt.toLoc
 let blueprints = [];
 
 async function loadBlueprints() {
-  blueprints = (await api("/blueprints").catch(() => [])) || [];
+  blueprints = await api("/blueprints").catch(() => []);
+  if (!Array.isArray(blueprints)) blueprints = [];
   const el = document.getElementById("tab-blueprints");
   el.innerHTML = `
     <div class="page-header"><h2>Blueprints</h2><button onclick="showBlueprintForm()">+ New Blueprint</button></div>
@@ -189,8 +190,10 @@ async function deleteBlueprint(id) {
 let templates = [];
 
 async function loadTemplates() {
-  blueprints = (await api("/blueprints").catch(() => [])) || [];
-  templates = (await api("/templates").catch(() => [])) || [];
+  blueprints = await api("/blueprints").catch(() => []);
+  if (!Array.isArray(blueprints)) blueprints = [];
+  templates = await api("/templates").catch(() => []);
+  if (!Array.isArray(templates)) templates = [];
   const el = document.getElementById("tab-templates");
   el.innerHTML = `
     <div class="page-header"><h2>Templates</h2><button onclick="showTemplateForm()">+ New Template</button></div>
@@ -267,8 +270,10 @@ function filterProjects(nameVal) {
 }
 
 async function loadProjects() {
-  templates = (await api("/templates").catch(() => [])) || [];
-  projects = (await api("/projects").catch(() => [])) || [];
+  templates = await api("/templates").catch(() => []);
+  if (!Array.isArray(templates)) templates = [];
+  projects = await api("/projects").catch(() => []);
+  if (!Array.isArray(projects)) projects = [];
   // Fetch tags for all projects
   const projectTags = {};
   for (const p of projects) {
@@ -909,4 +914,4 @@ async function doImport() {
   } catch (err) { status.textContent = "Error: " + (err.message || "unknown"); }
 }
 
-loadTab("projects");
+checkAuth();
