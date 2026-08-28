@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Choreography Manager</title>
+<link rel="stylesheet" href="{{BASE}}/frontend/style.css">
+</head>
+<body>
+<nav class="tabs">
+  <button class="tab active" data-tab="projects">Projects</button>
+  <button class="tab" data-tab="templates">Templates</button>
+  <button class="tab" data-tab="blueprints">Blueprints</button>
+</nav>
+<main>
+  <section id="tab-projects" class="tab-content active"></section>
+  <section id="tab-templates" class="tab-content"></section>
+  <section id="tab-blueprints" class="tab-content"></section>
+</main>
+<div id="modal" class="modal hidden">
+  <div class="modal-content"><span class="close" onclick="closeModal()">&times;</span><div id="modal-body"></div></div>
+</div>
+<script>
+window.APP_BASE = "{{BASE}}";
+</script>
+<script src="{{BASE}}/frontend/app.js"></script>
+</body>
+</html>
