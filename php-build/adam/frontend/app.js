@@ -675,7 +675,7 @@ async function deleteCurrentProject() {
 async function deleteProject(id, name) {
   if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
   await api("/projects/" + id, { method: "DELETE" });
-  renderProjects();
+  loadProjects();
 }
 
 async function refreshProjectView() {
