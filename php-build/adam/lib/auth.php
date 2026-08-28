@@ -7,12 +7,22 @@ declare(strict_types=1);
  */
 
 // ── Config ──
-$oauthConfig = require APP_ROOT . '/config/oauth.php';
+$oauthConfigFile = APP_ROOT . '/config/oauth.php';
+if (is_file($oauthConfigFile)) {
+    $oauthConfig = require $oauthConfigFile;
+} else {
+    $oauthConfig = ['client_id' => '', 'client_secret' => ''];
+}
 define('GOOGLE_CLIENT_ID', $oauthConfig['client_id']);
 define('GOOGLE_CLIENT_SECRET', $oauthConfig['client_secret']);
-define('GOOGLE_REDIRECT_URI', (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http')
-    . '://' . ($_SERVER['HTTP_HOST'] ?? 'siamkoala.com') . APP_BASE . '/auth/google/callback');
 define('GOOGLE_SCOPES', 'email profile');
+
+function google_redirect_uri(): string
+{
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'siamkoala.com';
+    return $scheme . '://' . $host . APP_BASE . '/auth/google/callback';
+}
 
 function session_start_safe(): void
 {
@@ -84,7 +94,7 @@ function google_auth_redirect(): void
 {
     $params = http_build_query([
         'client_id' => GOOGLE_CLIENT_ID,
-        'redirect_uri' => GOOGLE_REDIRECT_URI,
+        'redirect_uri' => google_redirect_uri(),
         'response_type' => 'code',
         'scope' => GOOGLE_SCOPES,
         'access_type' => 'offline',
@@ -135,7 +145,7 @@ function google_exchange_code(string $code): array
             'code' => $code,
             'client_id' => GOOGLE_CLIENT_ID,
             'client_secret' => GOOGLE_CLIENT_SECRET,
-            'redirect_uri' => GOOGLE_REDIRECT_URI,
+            'redirect_uri' => google_redirect_uri(),
             'grant_type' => 'authorization_code',
         ]),
     ]);
