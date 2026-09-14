@@ -16,8 +16,20 @@ if (is_file($oauthConfigFile)) {
 }
 define('GOOGLE_CLIENT_ID', $oauthConfig['client_id']);
 define('GOOGLE_CLIENT_SECRET', $oauthConfig['client_secret']);
+define('GOOGLE_REDIRECT_URI', $oauthConfig['redirect_uri'] ?? '');
 define('AUTH_SECRET', $oauthConfig['auth_secret'] ?? 'choreo-default-secret-change-me');
+define('ADMIN_EMAILS', $oauthConfig['admin_emails'] ?? []);
 define('GOOGLE_SCOPES', 'email profile');
+
+function user_role_for_email(string $email): string
+{
+    $email = strtolower(trim($email));
+    if (in_array($email, array_map('strtolower', ADMIN_EMAILS), true)) {
+        return 'admin';
+    }
+    $userCount = (int)db_scalar('SELECT COUNT(*) FROM users');
+    return $userCount === 0 ? 'admin' : 'artist';
+}
 
 // ── Signed token helpers ──
 function base64url_encode(string $data): string
@@ -61,12 +73,25 @@ function verify_token(string $token): ?int
     return (int)$data['uid'];
 }
 
+function is_https(): bool
+{
+    return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ($_SERVER['SERVER_PORT'] ?? 0) == 443
+        || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+}
+
+function cookie_path(): string
+{
+    return APP_BASE ?: '/';
+}
+
 function set_auth_cookie(int $userId): void
 {
     $ok = setcookie('auth_token', make_token($userId), [
         'expires' => time() + 86400 * 30,
-        'path' => APP_BASE ?: '/',
+        'path' => cookie_path(),
         'httponly' => true,
+        'secure' => is_https(),
         'samesite' => 'Lax',
     ]);
     if (!$ok) {
@@ -78,8 +103,9 @@ function clear_auth_cookie(): void
 {
     setcookie('auth_token', '', [
         'expires' => 1,
-        'path' => APP_BASE ?: '/',
+        'path' => cookie_path(),
         'httponly' => true,
+        'secure' => is_https(),
         'samesite' => 'Lax',
     ]);
 }
@@ -127,12 +153,17 @@ function require_admin(): array
 
 function normalize_user(array $row): array
 {
+    $email = strtolower(trim((string)$row['email']));
+    $role = (string)$row['role'];
+    if (in_array($email, array_map('strtolower', ADMIN_EMAILS), true)) {
+        $role = 'admin';
+    }
     return [
         'id' => (int)$row['id'],
         'organization_id' => (int)$row['organization_id'],
         'email' => (string)$row['email'],
         'name' => (string)$row['name'],
-        'role' => (string)$row['role'],
+        'role' => $role,
         'approved' => to_bool($row['approved']),
         'created_at' => (string)$row['created_at'],
         'last_login' => $row['last_login'] ? (string)$row['last_login'] : null,
@@ -143,6 +174,9 @@ function normalize_user(array $row): array
 
 function google_redirect_uri(): string
 {
+    if (GOOGLE_REDIRECT_URI !== '') {
+        return GOOGLE_REDIRECT_URI;
+    }
     $host = $_SERVER['HTTP_HOST'] ?? 'siamkoala.com';
     return 'https://' . $host . APP_BASE . '/auth/google/callback';
 }
@@ -175,6 +209,13 @@ function google_auth_callback(): void
     $googleUser = google_get_user_info($tokenData['access_token']);
     if (empty($googleUser['id']) || empty($googleUser['email'])) {
         throw new ApiError('Failed to get user info from Google', 400);
+    }
+
+    // Access control: only whitelisted emails may use the app.
+    $email = strtolower(trim($googleUser['email']));
+    if (!is_email_whitelisted($email)) {
+        header('Location: ' . APP_BASE . '?error=' . urlencode('Email not authorized. Contact admin to get access.'));
+        exit;
     }
 
     $user = find_or_create_google_user($googleUser);
@@ -227,11 +268,11 @@ function find_or_create_google_user(array $googleUser): array
         return normalize_user(db_row('SELECT * FROM users WHERE id = ' . $user['id']));
     }
 
-    $approved = is_email_whitelisted($email) ? 1 : 0;
     $orgId = ensure_default_org();
+    $role = user_role_for_email($email);
     $id = db_insert("INSERT INTO users (organization_id, email, name, google_sub, role, approved, created_at, last_login) VALUES ("
         . $orgId . ', ' . db_quote($email) . ', ' . db_quote($name) . ', ' . db_quote($googleSub)
-        . ", 'artist', $approved, '" . now_iso() . "', '" . now_iso() . "')");
+        . ", '" . $role . "', 1, '" . now_iso() . "', '" . now_iso() . "')");
 
     return normalize_user(db_row('SELECT * FROM users WHERE id = ' . $id));
 }
@@ -241,8 +282,17 @@ function find_or_create_google_user(array $googleUser): array
 function is_email_whitelisted(string $email): bool
 {
     $email = strtolower(trim($email));
+    $at = strpos($email, '@');
+    if ($email === '' || $at === false) {
+        return false;
+    }
     $row = db_row('SELECT id FROM whitelisted_emails WHERE LOWER(email) = ' . db_quote($email));
-    return $row !== null;
+    if ($row !== null) {
+        return true;
+    }
+    $domain = substr($email, $at);
+    $domainRow = db_row('SELECT id FROM whitelisted_emails WHERE LOWER(email) = ' . db_quote($domain));
+    return $domainRow !== null;
 }
 
 function email_login(string $email): array
@@ -263,9 +313,10 @@ function email_login(string $email): array
     } else {
         $orgId = ensure_default_org();
         $name = strtok($email, '@');
+        $role = user_role_for_email($email);
         $id = db_insert("INSERT INTO users (organization_id, email, name, google_sub, role, approved, created_at, last_login) VALUES ("
             . $orgId . ', ' . db_quote($email) . ', ' . db_quote($name)
-            . ", 'email-" . md5($email) . "', 'artist', 1, '" . now_iso() . "', '" . now_iso() . "')");
+            . ", 'email-" . md5($email) . "', '" . $role . "', 1, '" . now_iso() . "', '" . now_iso() . "')");
         $user = db_row('SELECT * FROM users WHERE id = ' . $id);
     }
 
@@ -294,12 +345,12 @@ function ensure_default_org(): int
 function add_whitelisted_email(string $email, string $addedBy): void
 {
     $email = strtolower(trim($email));
-    if ($email === '') {
-        throw new ApiError('Email required', 400);
+    if ($email === '' || strpos($email, '@') === false) {
+        throw new ApiError('Enter a valid email or @domain', 400);
     }
     $exists = db_row('SELECT id FROM whitelisted_emails WHERE LOWER(email) = ' . db_quote($email));
     if ($exists) {
-        throw new ApiError('Email already whitelisted', 400);
+        throw new ApiError('Email or domain already whitelisted', 400);
     }
     db_exec("INSERT INTO whitelisted_emails (email, added_by, created_at) VALUES ("
         . db_quote($email) . ', ' . db_quote($addedBy) . ", '" . now_iso() . "')");

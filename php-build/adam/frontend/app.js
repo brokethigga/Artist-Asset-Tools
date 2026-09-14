@@ -29,11 +29,6 @@ async function api(path, opts = {}) {
 }
 
 // ── Auth ──
-function showLogin() {
-  document.getElementById('login-screen').classList.remove('hidden');
-  document.getElementById('app-screen').classList.add('hidden');
-}
-
 function showApp() {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app-screen').classList.remove('hidden');
@@ -46,12 +41,29 @@ async function checkAuth() {
       redirectedToLogin = false;
       currentUser = user;
       document.getElementById('user-name').textContent = user.name || user.email;
+      if (user.role === 'admin') {
+        document.getElementById('tab-btn-access').style.display = '';
+      }
       showApp();
       initApp();
       return;
     }
   } catch (e) {}
   showLogin();
+}
+
+function showLogin() {
+  const params = new URLSearchParams(window.location.search);
+  const errMsg = params.get('error');
+  if (errMsg) {
+    document.getElementById('login-error').textContent = errMsg;
+    document.getElementById('login-error').classList.remove('hidden');
+    const url = new URL(window.location.href);
+    url.searchParams.delete('error');
+    window.history.replaceState({}, '', url.toString());
+  }
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('app-screen').classList.add('hidden');
 }
 
 async function emailLogin(e) {
@@ -83,6 +95,56 @@ function logout() {
   window.location.href = APP_BASE + "/auth/logout";
 }
 
+// ── ACCESS (admin: whitelist management) ──
+async function loadAccess() {
+  const el = document.getElementById("tab-access");
+  if (!currentUser || currentUser.role !== 'admin') {
+    el.innerHTML = '<p style="color:#999">Admin only.</p>';
+    return;
+  }
+  const rows = await api("/auth/whitelist").catch(() => []);
+  el.innerHTML = `
+    <div class="page-header"><h2>Access Control</h2></div>
+    <p style="font-size:13px;color:#666;max-width:600px">Only whitelisted emails can sign in. People use the email or Google login; users are auto-approved the first time they sign in.</p>
+    <div style="max-width:600px">
+      <form onsubmit="addWhitelistEmail(event)" style="display:flex;gap:8px;margin:12px 0">
+        <input type="text" id="wl-email" placeholder="artist@example.com or @company.com" required style="flex:1">
+        <button type="submit">Add Email</button>
+      </form>
+      <p id="wl-error" style="color:#c62828;font-size:13px"></p>
+      <table class="entry-table">
+        <thead><tr><th>Email</th><th>Added By</th><th>Added</th><th></th></tr></thead>
+        <tbody>
+          ${(rows||[]).map(r => `<tr>
+            <td>${esc(r.email)}</td>
+            <td>${esc(r.added_by)}</td>
+            <td>${fmtDate(r.created_at)}</td>
+            <td><button class="small danger" onclick="removeWhitelistEmail(${r.id})">Remove</button></td>
+          </tr>`).join('') || '<tr><td colspan="4" style="color:#999">No whitelisted emails.</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function addWhitelistEmail(e) {
+  e.preventDefault();
+  const email = document.getElementById('wl-email').value.trim();
+  const errEl = document.getElementById('wl-error');
+  errEl.textContent = '';
+  try {
+    await api("/auth/whitelist", { method: "POST", body: JSON.stringify({ email }) });
+    loadAccess();
+  } catch (err) {
+    errEl.textContent = err.detail || "Failed to add";
+  }
+}
+
+async function removeWhitelistEmail(id) {
+  if (!confirm("Remove this email?")) return;
+  await api("/auth/whitelist/" + id, { method: "DELETE" });
+  loadAccess();
+}
+
 // ── Init ──
 let appInitialized = false;
 function initApp() {
@@ -102,6 +164,7 @@ function loadTab(t) {
   if (t === "blueprints") loadBlueprints();
   else if (t === "templates") loadTemplates();
   else if (t === "projects") loadProjects();
+  else if (t === "access") loadAccess();
 }
 
 function showModal(html) {

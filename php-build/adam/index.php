@@ -122,6 +122,20 @@ function handle_api(string $method, string $apiPath): void
                 json_out(['ok' => true]);
                 break;
 
+            case 'db-check':
+                // Public diagnostic: reports DB driver + MySQL connectivity (no data, no secrets).
+                json_out(db_connection_report());
+                break;
+
+            case 'migrate-db':
+                // Admin-only: copy existing SQLite data into the current MySQL database.
+                require_admin();
+                if ($method !== 'POST') {
+                    throw new ApiError('Method not allowed', 405);
+                }
+                json_out(migrate_sqlite_to_mysql());
+                break;
+
             case 'auth':
                 handle_auth_api($method, $segments);
                 break;
@@ -199,7 +213,7 @@ function handle_auth_api(string $method, array $segments): void
             // Admin-only: manage whitelisted emails
             require_admin();
             if ($method === 'GET') {
-                $rows = db_query('SELECT * FROM whitelisted_emails ORDER BY created_at DESC');
+                $rows = db_rows('SELECT * FROM whitelisted_emails ORDER BY created_at DESC');
                 json_out($rows);
             } elseif ($method === 'POST') {
                 $input = json_decode(file_get_contents('php://input'), true) ?: [];
