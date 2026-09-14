@@ -240,17 +240,56 @@ alembic upgrade head
 
 ---
 
-## Notes for Claude
+## Notes for AI Agents
 
 - Follow Ponytail Standards (`PONYTAIL_STANDARDS.md`) — lazy senior dev mode
 - No unnecessary abstractions
 - Deletion over addition
 - Validate inputs at trust boundaries
 - Run `rtk` prefix for commands to save context
+- Dev mode auto-login is active (GOOGLE_CLIENT_ID is empty in .env) — expected behaviour
 
 ---
 
-## Status
+## Current Status — Updated 2026-08-16
 
-**Current:** Phases 1-6 complete + additional enhancements, app functional
-**Next:** Phase 7 — Exporter (Excel/CSV/PDF)
+### Phase Progress
+| Phase | Feature | Status |
+|-------|---------|--------|
+| 1–6 | Foundation, Auth, APIs, Hours, Images, Comments | ✅ Complete |
+| 7 | Exporter (Excel/CSV/PDF) | ⏳ Not started — **next priority** |
+| 8 | Database backups | ⏳ Not started |
+| 9 | Deployment | 🔄 In planning — see below |
+
+### What Happened This Session (2026-08-16)
+
+**Problem:** App was moved to a new computer and couldn't run.
+
+**Fixed:**
+1. **Migration bug** — `alembic/versions/a8dd0fa6bfe7_add_asset_link_to_entries.py` crashed on fresh DBs because it tried to `drop_index('ix_entry_tags_id')` which only existed on the old machine. Fixed with an `inspector.get_table_names()` guard — now safe on both fresh and existing databases.
+2. **OAuth redirect URI** — `backend/main.py` line ~104 had hardcoded `http://localhost:8000/auth/callback`. Changed to read from `OAUTH_REDIRECT_URI` env var (falls back to localhost for dev). Required for production deployment.
+
+**App is now running** on this machine at `http://localhost:8000/app`.
+
+### Deployment Plan
+See `DEPLOYMENT_PLAN.md` (to be created) — full plan written but not yet executed.
+
+**Decision needed:** User is checking if their existing shared hosting (FTP/cPanel) supports Python App / Passenger. Two paths:
+- ✅ If cPanel has "Setup Python App" → deploy there at no extra cost
+- ❌ If not → use Railway.app (free tier) or a $5/mo VPS (DigitalOcean/Hetzner)
+
+**Deployment blockers before going live:**
+- [ ] Confirm hosting supports Python (user is checking)
+- [ ] Get Google OAuth credentials (Client ID + Secret from console.cloud.google.com)
+- [ ] Add `OAUTH_REDIRECT_URI=https://yourdomain.com/auth/callback` to production `.env`
+- [ ] Switch `DATABASE_URL` to PostgreSQL in production `.env`
+- [ ] Run `alembic upgrade head` on production DB
+
+### Immediate Next Task for AI
+**Phase 7 — Exporter.** When user is ready:
+- `GET /api/projects/{id}/export?format=xlsx` — openpyxl (already installed)
+- `GET /api/projects/{id}/export?format=csv` — stdlib csv (no install needed)
+- `GET /api/projects/{id}/export?format=pdf` — reportlab (needs `pip install reportlab`)
+- Add export button + format dropdown to frontend project detail view
+- Shared data assembly function: `get_project_export_data(project_id, db)` used by all three renderers
+- See `IMPLEMENTATION_PLAN.md` Phase 7 for full spec
