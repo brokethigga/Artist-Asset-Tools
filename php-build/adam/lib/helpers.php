@@ -20,6 +20,12 @@ function now_iso(): string
 
 function db_quote(string $value): string
 {
+    if (db_driver() === 'mysql') {
+        $db = db();
+        if ($db instanceof MysqlConn) {
+            return "'" . $db->raw()->real_escape_string($value) . "'";
+        }
+    }
     return "'" . str_replace("'", "''", $value) . "'";
 }
 

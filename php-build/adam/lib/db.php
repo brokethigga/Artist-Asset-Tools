@@ -12,12 +12,18 @@ function db_config(): array
 {
     static $cfg = null;
     if ($cfg === null) {
-        $cfg = ['driver' => 'sqlite'];
-        $file = APP_ROOT . '/config/db.php';
-        if (is_file($file)) {
-            $loaded = require $file;
-            if (is_array($loaded)) {
-                $cfg = array_merge($cfg, $loaded);
+        $cfg = ['driver' => 'mysql'];
+        $candidates = [
+            __DIR__ . '/../../admin/pass.php',
+            __DIR__ . '/../../../../admin/pass.php',
+        ];
+        foreach ($candidates as $file) {
+            if (is_file($file)) {
+                $loaded = require $file;
+                if (is_array($loaded)) {
+                    $cfg = array_merge($cfg, $loaded);
+                }
+                break;
             }
         }
     }
@@ -26,7 +32,7 @@ function db_config(): array
 
 function db_driver(): string
 {
-    return (string)(db_config()['driver'] ?? 'sqlite');
+    return (string)(db_config()['driver'] ?? 'mysql');
 }
 
 // ── MySQL adapter ──
@@ -106,7 +112,7 @@ class MysqlConn
     {
         $password = (string)($cfg['password'] ?? '');
         if ($password === '') {
-            throw new ApiError('Database password not configured (config/db.php)', 500);
+            throw new ApiError('Database password not configured (admin/pass.php)', 500);
         }
         $this->connectCandidates = mysql_connect_candidates($cfg);
         $this->mysqli = mysql_attempt_connect($cfg, $this->connectCandidates, $this->connectErrors, $this->dbName);
@@ -542,7 +548,7 @@ function seed_blueprints($db): void
 function db_connection_report(): array
 {
     if (db_driver() !== 'mysql') {
-        return ['driver' => 'sqlite', 'note' => 'Using SQLite; add config/db.php with driver=mysql to switch.'];
+        return ['driver' => 'sqlite', 'note' => 'Using SQLite; add admin/pass.php with driver=mysql to switch.'];
     }
     $cfg = db_config();
     $candidates = mysql_connect_candidates($cfg);
@@ -565,7 +571,7 @@ function db_connection_report(): array
 function migrate_sqlite_to_mysql(): array
 {
     if (db_driver() !== 'mysql') {
-        throw new ApiError('Not in MySQL mode (config/db.php missing or not mysql)', 400);
+        throw new ApiError('Not in MySQL mode (admin/pass.php missing or not mysql)', 400);
     }
     $srcFile = DATA_DIR . '/choreo.db';
     if (!is_file($srcFile)) {
