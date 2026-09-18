@@ -15,6 +15,7 @@ define('GOOGLE_REDIRECT_URI', $secrets['redirect_uri'] ?? '');
 define('AUTH_SECRET', $secrets['auth_secret'] ?? 'choreo-default-secret-change-me');
 define('ADMIN_EMAILS', $secrets['admin_emails'] ?? []);
 define('GOOGLE_SCOPES', 'email profile');
+define('WHITELISTED_DOMAINS', $secrets['whitelisted_domains'] ?? []);
 
 function user_role_for_email(string $email): string
 {
@@ -290,12 +291,15 @@ function is_email_whitelisted(string $email): bool
     if ($email === '' || $at === false) {
         return false;
     }
+    $domain = substr($email, $at + 1);
+    if (in_array($domain, WHITELISTED_DOMAINS, true)) {
+        return true;
+    }
     $row = db_row('SELECT id FROM whitelisted_emails WHERE LOWER(email) = ' . db_quote($email));
     if ($row !== null) {
         return true;
     }
-    $domain = substr($email, $at);
-    $domainRow = db_row('SELECT id FROM whitelisted_emails WHERE LOWER(email) = ' . db_quote($domain));
+    $domainRow = db_row('SELECT id FROM whitelisted_emails WHERE LOWER(email) = ' . db_quote('@' . $domain));
     return $domainRow !== null;
 }
 
