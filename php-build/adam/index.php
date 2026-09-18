@@ -51,14 +51,22 @@ if ($rel === '' || $rel === 'index.php' || $rel === 'index.html') {
 }
 
 // ── Auth routes (non-API, redirect-based) ──
-if ($rel === 'auth/google') {
-    google_auth_redirect();
-}
-if ($rel === 'auth/google/callback') {
-    google_auth_callback();
-}
-if ($rel === 'auth/logout') {
-    logout();
+try {
+    if ($rel === 'auth/google') {
+        google_auth_redirect();
+    }
+    if ($rel === 'auth/google/callback') {
+        google_auth_callback();
+    }
+    if ($rel === 'auth/logout') {
+        logout();
+    }
+} catch (Throwable $e) {
+    error_log('Auth route error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    http_response_code(500);
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<h1>Authentication Error</h1><p>' . htmlspecialchars($e->getMessage()) . '</p>';
+    exit;
 }
 
 if (strncmp($rel, 'api/', 4) === 0) {
