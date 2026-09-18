@@ -226,6 +226,7 @@ function google_exchange_code(string $code): array
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_POSTFIELDS => http_build_query([
             'code' => $code,
             'client_id' => GOOGLE_CLIENT_ID,
@@ -235,8 +236,16 @@ function google_exchange_code(string $code): array
         ]),
     ]);
     $response = curl_exec($ch);
+    $curlError = curl_error($ch);
     curl_close($ch);
-    return json_decode($response, true) ?: [];
+    $data = json_decode($response, true) ?: [];
+    if (!empty($data['error'])) {
+        throw new ApiError('Google OAuth error: ' . ($data['error_description'] ?? $data['error']) . ' (redirect_uri: ' . google_redirect_uri() . ')', 400);
+    }
+    if ($response === false || $curlError) {
+        throw new ApiError('Google OAuth curl error: ' . $curlError, 400);
+    }
+    return $data;
 }
 
 function google_get_user_info(string $accessToken): array
