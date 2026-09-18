@@ -149,7 +149,7 @@ class MysqlConn
     {
         $res = $this->mysqli->query($sql);
         if ($res === false) {
-            throw new ApiError('Query failed', 500);
+            throw new ApiError('Query failed: ' . $this->mysqli->error . ' | SQL: ' . substr($sql, 0, 200), 500);
         }
         return new MysqlResult($res);
     }
