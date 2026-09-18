@@ -69,7 +69,7 @@ function handle_blueprints(string $method, array $seg): void
                 db_exec("UPDATE blueprints SET " . implode(', ', $sets) . " WHERE id = $id");
             }
             if (isset($data['states'])) {
-                db_exec("DELETE FROM blueprint_states WHERE blueprint_id = $id");
+                db_exec("UPDATE blueprint_states SET archived = 1 WHERE blueprint_id = $id");
                 foreach ((array)($data['states'] ?? []) as $s) {
                     insert_state($id, $s);
                 }
@@ -98,7 +98,7 @@ function insert_state(int $bpId, array $s): void
 
 function blueprint_out(array $r): array
 {
-    $states = db_rows('SELECT * FROM blueprint_states WHERE blueprint_id = ' . (int)$r['id'] . ' ORDER BY id');
+    $states = db_rows('SELECT * FROM blueprint_states WHERE blueprint_id = ' . (int)$r['id'] . ' AND archived = 0 ORDER BY id');
     return [
         'id' => (int)$r['id'],
         'organization_id' => (int)$r['organization_id'],
@@ -265,7 +265,7 @@ function handle_projects(string $method, array $seg): void
                         if (!$bp) {
                             continue;
                         }
-                        $states = db_rows('SELECT * FROM blueprint_states WHERE blueprint_id = ' . (int)$bp['id'] . ' ORDER BY id');
+                        $states = db_rows('SELECT * FROM blueprint_states WHERE blueprint_id = ' . (int)$bp['id'] . ' AND archived = 0 ORDER BY id');
                         foreach ($states as $s) {
                             db_exec("INSERT INTO entries (project_id, element_name, animation_name, looping, duration, description, projected_hours, actual_hours) VALUES ("
                                 . $pid . ", " . db_quote((string)$bp['name']) . ", " . db_quote((string)$s['name']) . ", "

@@ -198,7 +198,7 @@ function bootstrap_db($db, string $driver): void
     }
 
     // Add archived column to existing tables if missing
-    $archivedTables = ['blueprints', 'templates', 'projects'];
+    $archivedTables = ['blueprints', 'templates', 'projects', 'blueprint_states'];
     foreach ($archivedTables as $t) {
         $col = db_scalar("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$t' AND COLUMN_NAME = 'archived'");
         if ((int)$col === 0) {
