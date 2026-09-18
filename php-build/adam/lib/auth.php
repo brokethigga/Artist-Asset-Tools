@@ -8,17 +8,12 @@ declare(strict_types=1);
  */
 
 // ── Config ──
-$oauthConfigFile = APP_ROOT . '/config/oauth.php';
-if (is_file($oauthConfigFile)) {
-    $oauthConfig = require $oauthConfigFile;
-} else {
-    $oauthConfig = ['client_id' => '', 'client_secret' => '', 'auth_secret' => 'choreo-default-secret-change-me'];
-}
-define('GOOGLE_CLIENT_ID', $oauthConfig['client_id']);
-define('GOOGLE_CLIENT_SECRET', $oauthConfig['client_secret']);
-define('GOOGLE_REDIRECT_URI', $oauthConfig['redirect_uri'] ?? '');
-define('AUTH_SECRET', $oauthConfig['auth_secret'] ?? 'choreo-default-secret-change-me');
-define('ADMIN_EMAILS', $oauthConfig['admin_emails'] ?? []);
+$secrets = db_config();
+define('GOOGLE_CLIENT_ID', $secrets['client_id'] ?? '');
+define('GOOGLE_CLIENT_SECRET', $secrets['client_secret'] ?? '');
+define('GOOGLE_REDIRECT_URI', $secrets['redirect_uri'] ?? '');
+define('AUTH_SECRET', $secrets['auth_secret'] ?? 'choreo-default-secret-change-me');
+define('ADMIN_EMAILS', $secrets['admin_emails'] ?? []);
 define('GOOGLE_SCOPES', 'email profile');
 
 function user_role_for_email(string $email): string
