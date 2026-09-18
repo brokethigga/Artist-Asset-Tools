@@ -180,13 +180,17 @@ function fmtDate(d) { if (!d) return ''; const dt = new Date(d); return dt.toLoc
 
 // ========== BLUEPRINTS ==========
 let blueprints = [];
+let showArchivedBp = false;
 
 async function loadBlueprints() {
-  blueprints = await api("/blueprints").catch(() => []);
+  const url = showArchivedBp ? "/blueprints?archived=1" : "/blueprints";
+  blueprints = await api(url).catch(() => []);
   if (!Array.isArray(blueprints)) blueprints = [];
   const el = document.getElementById("tab-blueprints");
   el.innerHTML = `
-    <div class="page-header"><h2>Blueprints</h2><button onclick="showBlueprintForm()">+ New Blueprint</button></div>
+    <div class="page-header"><h2>Blueprints</h2>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" ${showArchivedBp ? 'checked' : ''} onchange="showArchivedBp=this.checked;loadBlueprints()"> Show archived</label>
+      <button onclick="showBlueprintForm()">+ New Blueprint</button></div>
     <div class="search-bar"><input type="text" placeholder="Search blueprints..." oninput="filterCards(this,'#bp-list')" class="search-input"></div>
     <div id="bp-list">${blueprints.length ? '<div class="grid">' + blueprints.map(b => `
       <div class="card" data-name="${esc(b.name.toLowerCase())}">
@@ -195,10 +199,10 @@ async function loadBlueprints() {
         <div class="meta">${b.states.length} animation states</div>
         <div class="card-actions">
           <button class="small" onclick="showBlueprintForm(${b.id})">Edit</button>
-          <button class="small danger" onclick="deleteBlueprint(${b.id})">Delete</button>
+          <button class="small danger" onclick="deleteBlueprint(${b.id})">${showArchivedBp ? 'Restore' : 'Archive'}</button>
         </div>
       </div>
-    `).join("") + '</div>' : '<p style="color:#999">No blueprints yet.</p>'}</div>`;
+    `).join("") + '</div>' : `<p style="color:#999">No ${showArchivedBp ? 'archived ' : ''}blueprints yet.</p>`}</div>`;
 }
 
 function showBlueprintForm(id) {
@@ -251,29 +255,40 @@ async function saveBlueprint(e, id) {
 }
 
 async function deleteBlueprint(id) {
-  if (!confirm("Delete this blueprint?")) return;
-  await api("/blueprints/" + id, { method: "DELETE" }); loadBlueprints();
+  if (showArchivedBp) {
+    if (!confirm("Restore this blueprint?")) return;
+    await api("/blueprints/" + id, { method: "PUT", body: JSON.stringify({ archived: 0 }) });
+  } else {
+    if (!confirm("Archive this blueprint?")) return;
+    await api("/blueprints/" + id, { method: "DELETE" });
+  }
+  loadBlueprints();
 }
 
 // ========== TEMPLATES ==========
 let templates = [];
+let showArchivedTpl = false;
 
 async function loadTemplates() {
-  blueprints = await api("/blueprints").catch(() => []);
+  const bpUrl = showArchivedTpl ? "/blueprints?archived=1" : "/blueprints";
+  blueprints = await api(bpUrl).catch(() => []);
   if (!Array.isArray(blueprints)) blueprints = [];
-  templates = await api("/templates").catch(() => []);
+  const tplUrl = showArchivedTpl ? "/templates?archived=1" : "/templates";
+  templates = await api(tplUrl).catch(() => []);
   if (!Array.isArray(templates)) templates = [];
   const el = document.getElementById("tab-templates");
   el.innerHTML = `
-    <div class="page-header"><h2>Templates</h2><button onclick="showTemplateForm()">+ New Template</button></div>
+    <div class="page-header"><h2>Templates</h2>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" ${showArchivedTpl ? 'checked' : ''} onchange="showArchivedTpl=this.checked;loadTemplates()"> Show archived</label>
+      <button onclick="showTemplateForm()">+ New Template</button></div>
     <div class="search-bar"><input type="text" placeholder="Search templates..." oninput="filterCards(this,'#tpl-list')" class="search-input"></div>
     <div id="tpl-list">${templates.length ? '<div class="grid">' + templates.map(t => {
       const bpNames = (t.blueprints || []).map(tb => { const b = blueprints.find(x => x.id === tb.blueprint_id); return b ? b.name : "?"; }).join(", ");
       return `<div class="card" data-name="${esc(t.name.toLowerCase())}"><h3>${esc(t.name)}</h3><p>${esc(t.description) || "—"}</p>
         <div class="meta">${(t.blueprints||[]).length} elements: ${esc(bpNames)}</div>
         <div class="card-actions"><button class="small" onclick="showTemplateForm(${t.id})">Edit</button>
-        <button class="small danger" onclick="deleteTemplate(${t.id})">Delete</button></div></div>`;
-    }).join("") + '</div>' : '<p style="color:#999">No templates yet.</p>'}</div>`;
+        <button class="small danger" onclick="deleteTemplate(${t.id})">${showArchivedTpl ? 'Restore' : 'Archive'}</button></div></div>`;
+    }).join("") + '</div>' : `<p style="color:#999">No ${showArchivedTpl ? 'archived ' : ''}templates yet.</p>`}</div>`;
 }
 
 function showTemplateForm(id) {
@@ -308,8 +323,14 @@ async function saveTemplate(e, id) {
 }
 
 async function deleteTemplate(id) {
-  if (!confirm("Delete this template?")) return;
-  await api("/templates/" + id, { method: "DELETE" }); loadTemplates();
+  if (showArchivedTpl) {
+    if (!confirm("Restore this template?")) return;
+    await api("/templates/" + id, { method: "PUT", body: JSON.stringify({ archived: 0 }) });
+  } else {
+    if (!confirm("Archive this template?")) return;
+    await api("/templates/" + id, { method: "DELETE" });
+  }
+  loadTemplates();
 }
 
 // ========== PROJECTS ==========
@@ -338,12 +359,15 @@ function filterProjects(nameVal) {
   });
 }
 
+let showArchivedProj = false;
+
 async function loadProjects() {
-  templates = await api("/templates").catch(() => []);
+  const tplUrl = showArchivedProj ? "/templates?archived=1" : "/templates";
+  templates = await api(tplUrl).catch(() => []);
   if (!Array.isArray(templates)) templates = [];
-  projects = await api("/projects").catch(() => []);
+  const projUrl = showArchivedProj ? "/projects?archived=1" : "/projects";
+  projects = await api(projUrl).catch(() => []);
   if (!Array.isArray(projects)) projects = [];
-  // Fetch tags for all projects
   const projectTags = {};
   for (const p of projects) {
     try {
@@ -353,7 +377,9 @@ async function loadProjects() {
   const el = document.getElementById("tab-projects");
   el.innerHTML = `
     <div id="project-list">
-    <div class="page-header"><h2>Projects</h2><button onclick="showProjectForm()">+ New Project</button></div>
+    <div class="page-header"><h2>Projects</h2>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" ${showArchivedProj ? 'checked' : ''} onchange="showArchivedProj=this.checked;loadProjects()"> Show archived</label>
+      <button onclick="showProjectForm()">+ New Project</button></div>
     <div class="search-bar" style="display:flex;gap:8px"><input type="text" id="project-search" placeholder="Search projects..." oninput="filterProjects(this.value)" class="search-input" style="flex:1"><input type="text" id="project-tag-filter" placeholder="Filter by tag..." oninput="filterProjects(document.getElementById('project-search').value)" class="search-input" style="max-width:200px"></div>
     ${projects.length ? '<div class="grid">' + projects.map(p => {
       const t = templates.find(x => x.id === p.template_id);
@@ -365,7 +391,7 @@ async function loadProjects() {
         <div class="progress-bar" id="prog-${p.id}"><div class="progress-fill" style="width:0%"></div></div>
         <div class="meta"><span class="badge ${p.status}">${p.status}</span></div>
         <div class="meta" style="font-size:12px;color:#777">Created ${fmtDate(p.created_at)}${p.deadline ? ' · <span style="color:#c62828">Due ' + fmtDate(p.deadline) + '</span>' : ''}</div>
-        <button onclick="event.stopPropagation();deleteProject(${p.id},'${esc(p.name)}')" class="danger" style="position:absolute;top:8px;right:8px;padding:4px 8px;font-size:11px">Delete</button>
+        <button onclick="event.stopPropagation();deleteProject(${p.id},'${esc(p.name)}')" class="danger" style="position:absolute;top:8px;right:8px;padding:4px 8px;font-size:11px">${showArchivedProj ? 'Restore' : 'Archive'}</button>
       </div>`;
     }).join("") + '</div>' : '<p style="color:#999">No projects yet.</p>'}
     </div>
@@ -814,8 +840,13 @@ async function deleteCurrentProject() {
 }
 
 async function deleteProject(id, name) {
-  if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
-  await api("/projects/" + id, { method: "DELETE" });
+  if (showArchivedProj) {
+    if (!confirm(`Restore "${name}"?`)) return;
+    await api("/projects/" + id, { method: "PUT", body: JSON.stringify({ archived: 0 }) });
+  } else {
+    if (!confirm(`Archive "${name}"?`)) return;
+    await api("/projects/" + id, { method: "DELETE" });
+  }
   loadProjects();
 }
 

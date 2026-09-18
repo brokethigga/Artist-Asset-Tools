@@ -15,7 +15,8 @@ function handle_blueprints(string $method, array $seg): void
 
     if (count($seg) === 1) {
         if ($method === 'GET') {
-            $rows = db_rows("SELECT * FROM blueprints WHERE organization_id = $orgId AND archived = 0 ORDER BY name");
+            $showArchived = (int)($_GET['archived'] ?? 0);
+            $rows = db_rows("SELECT * FROM blueprints WHERE organization_id = $orgId AND archived = $showArchived ORDER BY name");
             $out = [];
             foreach ($rows as $r) {
                 $out[] = blueprint_out($r);
@@ -54,15 +55,24 @@ function handle_blueprints(string $method, array $seg): void
         }
         if ($method === 'PUT') {
             $data = json_body();
-            $name = get_str($data, 'name');
-            if ($name === '') {
-                throw new ApiError('Name is required');
+            $sets = [];
+            if (isset($data['archived'])) {
+                $sets[] = "archived = " . (int)$data['archived'];
             }
+            $name = get_str($data, 'name');
             $desc = get_str($data, 'description');
-            db_exec("UPDATE blueprints SET name = " . db_quote($name) . ", description = " . db_quote($desc) . " WHERE id = $id");
-            db_exec("DELETE FROM blueprint_states WHERE blueprint_id = $id");
-            foreach ((array)($data['states'] ?? []) as $s) {
-                insert_state($id, $s);
+            if ($name !== '') {
+                $sets[] = "name = " . db_quote($name);
+            }
+            $sets[] = "description = " . db_quote($desc);
+            if ($sets) {
+                db_exec("UPDATE blueprints SET " . implode(', ', $sets) . " WHERE id = $id");
+            }
+            if (isset($data['states'])) {
+                db_exec("DELETE FROM blueprint_states WHERE blueprint_id = $id");
+                foreach ((array)($data['states'] ?? []) as $s) {
+                    insert_state($id, $s);
+                }
             }
             json_out(blueprint_out(db_row('SELECT * FROM blueprints WHERE id = ' . $id)));
         }
@@ -116,7 +126,8 @@ function handle_templates(string $method, array $seg): void
 
     if (count($seg) === 1) {
         if ($method === 'GET') {
-            $rows = db_rows("SELECT * FROM templates WHERE organization_id = $orgId AND archived = 0 ORDER BY name");
+            $showArchived = (int)($_GET['archived'] ?? 0);
+            $rows = db_rows("SELECT * FROM templates WHERE organization_id = $orgId AND archived = $showArchived ORDER BY name");
             $out = [];
             foreach ($rows as $r) {
                 $out[] = template_out($r);
@@ -151,15 +162,24 @@ function handle_templates(string $method, array $seg): void
         }
         if ($method === 'PUT') {
             $data = json_body();
-            $name = get_str($data, 'name');
-            if ($name === '') {
-                throw new ApiError('Name is required');
+            $sets = [];
+            if (isset($data['archived'])) {
+                $sets[] = "archived = " . (int)$data['archived'];
             }
+            $name = get_str($data, 'name');
             $desc = get_str($data, 'description');
-            db_exec("UPDATE templates SET name = " . db_quote($name) . ", description = " . db_quote($desc) . " WHERE id = $id");
-            db_exec("DELETE FROM template_blueprints WHERE template_id = $id");
-            foreach ((array)($data['blueprint_ids'] ?? []) as $i => $bpId) {
-                db_exec("INSERT INTO template_blueprints (template_id, blueprint_id, sort_order) VALUES ($id, " . (int)$bpId . ", " . $i . ")");
+            if ($name !== '') {
+                $sets[] = "name = " . db_quote($name);
+            }
+            $sets[] = "description = " . db_quote($desc);
+            if ($sets) {
+                db_exec("UPDATE templates SET " . implode(', ', $sets) . " WHERE id = $id");
+            }
+            if (isset($data['blueprint_ids'])) {
+                db_exec("DELETE FROM template_blueprints WHERE template_id = $id");
+                foreach ((array)($data['blueprint_ids'] ?? []) as $i => $bpId) {
+                    db_exec("INSERT INTO template_blueprints (template_id, blueprint_id, sort_order) VALUES ($id, " . (int)$bpId . ", " . $i . ")");
+                }
             }
             json_out(template_out(db_row('SELECT * FROM templates WHERE id = ' . $id)));
         }
@@ -209,7 +229,8 @@ function handle_projects(string $method, array $seg): void
     // /projects
     if (count($seg) === 1) {
         if ($method === 'GET') {
-            $rows = db_rows("SELECT * FROM projects WHERE organization_id = $orgId AND archived = 0 ORDER BY created_at DESC");
+            $showArchived = (int)($_GET['archived'] ?? 0);
+            $rows = db_rows("SELECT * FROM projects WHERE organization_id = $orgId AND archived = $showArchived ORDER BY created_at DESC");
             $out = [];
             foreach ($rows as $r) {
                 $out[] = project_out($r);
@@ -273,7 +294,7 @@ function handle_projects(string $method, array $seg): void
         }
         if ($method === 'PUT') {
             $data = json_body();
-            $allowed = ['name', 'status', 'game_type', 'customer', 'deadline', 'summary', 'asset_link'];
+            $allowed = ['name', 'status', 'game_type', 'customer', 'deadline', 'summary', 'asset_link', 'archived'];
             $sets = [];
             foreach ($allowed as $field) {
                 if (array_key_exists($field, $data)) {
