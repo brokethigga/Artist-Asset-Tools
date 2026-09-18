@@ -13,10 +13,13 @@ function db_config(): array
     static $cfg = null;
     if ($cfg === null) {
         $cfg = ['driver' => 'mysql'];
-        $candidates = [
-            __DIR__ . '/../../admin/pass.php',
-            __DIR__ . '/../../../../admin/pass.php',
-        ];
+        $docRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
+        $candidates = [];
+        if ($docRoot !== '') {
+            $candidates[] = dirname($docRoot) . '/admin/pass.php';
+        }
+        $candidates[] = __DIR__ . '/../../admin/pass.php';
+        $candidates[] = __DIR__ . '/../../../../admin/pass.php';
         foreach ($candidates as $file) {
             if (is_file($file)) {
                 $loaded = require $file;
