@@ -197,6 +197,15 @@ function bootstrap_db($db, string $driver): void
         sqlite_schema($db);
     }
 
+    // Add archived column to existing tables if missing
+    $archivedTables = ['blueprints', 'templates', 'projects'];
+    foreach ($archivedTables as $t) {
+        $col = db_scalar("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$t' AND COLUMN_NAME = 'archived'");
+        if ((int)$col === 0) {
+            db_exec("ALTER TABLE `$t` ADD COLUMN archived TINYINT NOT NULL DEFAULT 0");
+        }
+    }
+
     // Seed organization
     $count = (int)db_scalar('SELECT COUNT(*) FROM organizations WHERE id = 1');
     if ($count === 0) {

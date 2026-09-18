@@ -15,7 +15,7 @@ function handle_blueprints(string $method, array $seg): void
 
     if (count($seg) === 1) {
         if ($method === 'GET') {
-            $rows = db_rows("SELECT * FROM blueprints WHERE organization_id = $orgId ORDER BY name");
+            $rows = db_rows("SELECT * FROM blueprints WHERE organization_id = $orgId AND archived = 0 ORDER BY name");
             $out = [];
             foreach ($rows as $r) {
                 $out[] = blueprint_out($r);
@@ -67,9 +67,7 @@ function handle_blueprints(string $method, array $seg): void
             json_out(blueprint_out(db_row('SELECT * FROM blueprints WHERE id = ' . $id)));
         }
         if ($method === 'DELETE') {
-            db_exec("DELETE FROM blueprint_states WHERE blueprint_id = $id");
-            db_exec("DELETE FROM template_blueprints WHERE blueprint_id = $id");
-            db_exec("DELETE FROM blueprints WHERE id = $id");
+            db_exec("UPDATE blueprints SET archived = 1 WHERE id = $id");
             json_out(['ok' => true]);
         }
         throw new ApiError('Method not allowed', 405);
@@ -118,7 +116,7 @@ function handle_templates(string $method, array $seg): void
 
     if (count($seg) === 1) {
         if ($method === 'GET') {
-            $rows = db_rows("SELECT * FROM templates WHERE organization_id = $orgId ORDER BY name");
+            $rows = db_rows("SELECT * FROM templates WHERE organization_id = $orgId AND archived = 0 ORDER BY name");
             $out = [];
             foreach ($rows as $r) {
                 $out[] = template_out($r);
@@ -166,8 +164,7 @@ function handle_templates(string $method, array $seg): void
             json_out(template_out(db_row('SELECT * FROM templates WHERE id = ' . $id)));
         }
         if ($method === 'DELETE') {
-            db_exec("DELETE FROM template_blueprints WHERE template_id = $id");
-            db_exec("DELETE FROM templates WHERE id = $id");
+            db_exec("UPDATE templates SET archived = 1 WHERE id = $id");
             json_out(['ok' => true]);
         }
         throw new ApiError('Method not allowed', 405);
@@ -181,12 +178,15 @@ function template_out(array $r): array
     $links = db_rows('SELECT * FROM template_blueprints WHERE template_id = ' . (int)$r['id'] . ' ORDER BY sort_order');
     $blueprints = [];
     foreach ($links as $l) {
-        $bp = db_row('SELECT * FROM blueprints WHERE id = ' . (int)$l['blueprint_id']);
+        $bp = db_row('SELECT * FROM blueprints WHERE id = ' . (int)$l['blueprint_id'] . ' AND archived = 0');
+        if (!$bp) {
+            continue;
+        }
         $blueprints[] = [
             'id' => (int)$l['id'],
             'blueprint_id' => (int)$l['blueprint_id'],
             'sort_order' => (int)$l['sort_order'],
-            'blueprint' => $bp ? blueprint_out($bp) : null,
+            'blueprint' => blueprint_out($bp),
         ];
     }
     return [
@@ -209,7 +209,7 @@ function handle_projects(string $method, array $seg): void
     // /projects
     if (count($seg) === 1) {
         if ($method === 'GET') {
-            $rows = db_rows("SELECT * FROM projects WHERE organization_id = $orgId ORDER BY created_at DESC");
+            $rows = db_rows("SELECT * FROM projects WHERE organization_id = $orgId AND archived = 0 ORDER BY created_at DESC");
             $out = [];
             foreach ($rows as $r) {
                 $out[] = project_out($r);
@@ -233,7 +233,7 @@ function handle_projects(string $method, array $seg): void
                 . "($orgId, " . db_quote($name) . ", " . ($templateId ?: 'NULL') . ", 'active', "
                 . db_quote($gameType) . ", " . db_quote($customer) . ", "
                 . ($deadline !== null ? db_quote($deadline) : 'NULL') . ", "
-                . ($assetLink !== null ? db_quote($assetLink) : 'NULL') . ", '" . now_iso() . "')");
+                . db_quote($assetLink ?? '') . ", '" . now_iso() . "')");
 
             if ($templateId) {
                 $tpl = db_row("SELECT * FROM templates WHERE id = $templateId AND organization_id = $orgId");
@@ -291,14 +291,7 @@ function handle_projects(string $method, array $seg): void
             json_out(['ok' => true]);
         }
         if ($method === 'DELETE') {
-            db_exec("DELETE FROM comments WHERE project_id = $pid");
-            $entryIds = db_rows("SELECT id FROM entries WHERE project_id = $pid");
-            foreach ($entryIds as $e) {
-                db_exec("DELETE FROM entry_images WHERE entry_id = " . (int)$e['id']);
-            }
-            db_exec("DELETE FROM entries WHERE project_id = $pid");
-            db_exec("DELETE FROM tags WHERE project_id = $pid");
-            db_exec("DELETE FROM projects WHERE id = $pid");
+            db_exec("UPDATE projects SET archived = 1 WHERE id = $pid");
             json_out(['ok' => true]);
         }
         throw new ApiError('Method not allowed', 405);
