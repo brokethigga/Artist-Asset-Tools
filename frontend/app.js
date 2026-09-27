@@ -38,7 +38,7 @@ function closeModal() {
   document.getElementById("modal").classList.add("hidden");
 }
 
-function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 function fmtDate(d) { if (!d) return ''; const dt = new Date(d); return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); }
 
 // ========== BLUEPRINTS ==========
@@ -68,7 +68,7 @@ function showBlueprintForm(id) {
   const statesHtml = bp ? bp.states.map(s => `
     <div class="state-item">
       <input type="text" name="st_name" value="${esc(s.name)}" placeholder="State name" required>
-      <label style="font-size:12px;white-space:nowrap"><input type="checkbox" name="st_loop" ${s.default_looping ? "checked" : ""}> Loop</label>
+      <label class="checkbox-label" style="font-size:12px;white-space:nowrap"><input type="checkbox" name="st_loop" ${s.default_looping ? "checked" : ""}> Loop</label>
       <input type="text" name="st_dur" value="${esc(s.default_duration)}" placeholder="Dur" style="width:70px">
       <input type="text" name="st_desc" value="${esc(s.default_description)}" placeholder="Description" style="flex:2">
       <button class="small danger" onclick="this.parentElement.remove()" type="button">×</button>
@@ -90,7 +90,7 @@ function addStateRow(name, loop, dur, desc) {
   const c = document.getElementById("states-container");
   const d = document.createElement("div"); d.className = "state-item";
   d.innerHTML = `<input type="text" name="st_name" value="${esc(name||'')}" placeholder="State name" required>
-    <label style="font-size:12px;white-space:nowrap"><input type="checkbox" name="st_loop" ${loop?"checked":""}> Loop</label>
+    <label class="checkbox-label" style="font-size:12px;white-space:nowrap"><input type="checkbox" name="st_loop" ${loop?"checked":""}> Loop</label>
     <input type="text" name="st_dur" value="${esc(dur||'')}" placeholder="Dur" style="width:70px">
     <input type="text" name="st_desc" value="${esc(desc||'')}" placeholder="Description" style="flex:2">
     <button class="small danger" onclick="this.parentElement.remove()" type="button">×</button>`;
@@ -145,10 +145,10 @@ function showTemplateForm(id) {
       <div class="form-group"><label>Template Name</label><input name="name" value="${t ? esc(t.name) : ''}" required></div>
       <div class="form-group"><label>Description</label><textarea name="description">${t ? esc(t.description) : ''}</textarea></div>
       <div class="form-group"><label>Elements (Blueprints)</label>
-        <div style="max-height:250px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:8px">
-          ${blueprints.map(b => `<label style="display:block;font-size:13px;padding:3px 0">
-            <input type="checkbox" name="bp_ids" value="${b.id}" ${checked.includes(b.id) ? "checked" : ""}> ${esc(b.name)}
-            <span style="color:#999;font-size:11px">(${b.states.length} states)</span>
+        <div class="check-list" style="max-height:250px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:8px">
+          ${blueprints.map(b => `<label>
+            <input type="checkbox" name="bp_ids" value="${b.id}" ${checked.includes(b.id) ? "checked" : ""}> <span>${esc(b.name)}</span>
+            <span class="muted">(${b.states.length} animations)</span>
           </label>`).join("")}
         </div>
       </div>
@@ -260,25 +260,36 @@ function showProjectForm() {
       </div>
       <div class="form-row">
         <div class="form-group"><label>Deadline</label><input name="deadline" type="date"></div>
-        <div class="form-group"><label>Asset Link</label><input name="asset_link" type="url" placeholder="https://..."></div>
+        <div class="form-group"><label>Asset Link</label><input name="asset_link" type="text" placeholder="https://..."></div>
       </div>
       <button type="submit">Create</button>
     </form>
   `);
 }
 
+function normalizeUrl(u) {
+  u = (u || "").trim();
+  if (u && !u.match(/^https?:\/\//i)) u = "https://" + u;
+  return u;
+}
+
 async function saveProject(e) {
   e.preventDefault();
   const fd = new FormData(e.target);
   const tid = fd.get("template_id");
-  await api("/projects", { method: "POST", body: JSON.stringify({
-    name: fd.get("name"),
-    template_id: tid ? parseInt(tid) : null,
-    game_type: fd.get("game_type") || "",
-    customer: fd.get("customer") || "",
-    deadline: fd.get("deadline") || null,
-    asset_link: fd.get("asset_link") || null,
-  })});
+  const link = normalizeUrl(fd.get("asset_link"));
+  try {
+    await api("/projects", { method: "POST", body: JSON.stringify({
+      name: fd.get("name"),
+      template_id: tid ? parseInt(tid) : null,
+      game_type: fd.get("game_type") || "",
+      customer: fd.get("customer") || "",
+      deadline: fd.get("deadline") || null,
+      asset_link: link || null,
+    })});
+  } catch (err) {
+    return; // api() already surfaced the error
+  }
   closeModal(); loadProjects();
 }
 
@@ -293,8 +304,12 @@ async function openProject(id) {
 }
 
 async function updateProjectField(field, val) {
-  await api("/projects/" + currentProject.id, { method: "PUT", body: JSON.stringify({ [field]: val || null }) });
-  currentProject[field] = val || null;
+  // Only genuinely nullable columns may be cleared to null — sending null to
+  // `name` violates NOT NULL and made the project look unsaveable.
+  const nullable = field === "deadline" || field === "asset_link" || field === "summary";
+  const value = (nullable && !val) ? null : val;
+  await api("/projects/" + currentProject.id, { method: "PUT", body: JSON.stringify({ [field]: value }) });
+  currentProject[field] = value;
 }
 
 function exportProject(fmt) {
@@ -320,7 +335,7 @@ function renderProjectDetail() {
   meta.push(`<span><input type="text" value="${esc(p.game_type)}" placeholder="Game type" onchange="updateProjectField('game_type',this.value)" style="border:none;background:transparent;font:inherit;font-size:13px;color:#555;padding:0;width:100px" class="editable-field"></span>`);
   meta.push(`<span>Client: <input type="text" value="${esc(p.customer)}" placeholder="Client name" onchange="updateProjectField('customer',this.value)" style="border:none;background:transparent;font:inherit;font-size:13px;color:#555;padding:0;width:120px" class="editable-field"></span>`);
   meta.push(`<span>Deadline: <input type="date" value="${esc(p.deadline || '')}" onchange="updateProjectDeadline(this.value)" style="border:none;background:transparent;font:inherit;color:inherit;padding:0;cursor:pointer"></span>`);
-  if (p.asset_link) meta.push(`<a href="${esc(p.asset_link)}" target="_blank" style="color:#1565c0">Asset Link &#8599;</a>`);
+  if (p.asset_link) meta.push(`<a href="${esc(normalizeUrl(p.asset_link))}" target="_blank" rel="noopener" style="color:#1565c0">Asset Link &#8599;</a>`);
   const el = document.getElementById("project-detail");
   el.innerHTML = `
     <div class="page-header"><button class="back-btn" onclick="closeProjectView()">← Projects</button>
@@ -366,7 +381,7 @@ async function renderRollup() {
 function filterBarHtml() {
   const f = entryFilters;
   return `<div class="filter-bar">
-    <input placeholder="State" value="${esc(f.state)}" oninput="entryFilters.state=this.value;renderEntries()">
+    <input placeholder="Animation" value="${esc(f.state)}" oninput="entryFilters.state=this.value;renderEntries()">
     <select onchange="entryFilters.type=this.value;renderEntries()"><option value="">Type: All</option>${TYPES.map(t => `<option value="${t}" ${f.type===t?'selected':''}>${t}</option>`).join('')}</select>
     <input placeholder="Artist" value="${esc(f.artist)}" oninput="entryFilters.artist=this.value;renderEntries()">
     <select onchange="entryFilters.priority=this.value;renderEntries()"><option value="">Priority: All</option>${PRIORITIES.map(p => `<option value="${p}" ${f.priority===p?'selected':''}>${p}</option>`).join('')}</select>
@@ -430,14 +445,14 @@ function renderEntries() {
         <span class="eh-toggle">▼</span>
         <span>${esc(element)} (${done}/${entries.length} done)${flagged ? ' <span style="color:#ff9800"> ⚠ '+flagged+' flagged</span>' : ''}</span>
         <div class="eh-actions"><span>${elProjected.toFixed(2)}h / ${elActual.toFixed(2)}h</span>
-          <button onclick="showAddEntryForm('${esc(element)}');event.stopPropagation()">+ State</button>
+          <button onclick="showAddEntryForm('${esc(element)}');event.stopPropagation()">+ Animation</button>
           <button onclick="deleteElement('${esc(element)}');event.stopPropagation()">×</button></div>
       </div>
       <div class="type-summary">${TYPES.map(t => `<span><strong>${t}</strong>: ${entries.filter(e => (e.phase || 'Animating') === t).reduce((s, e) => s + (e.actual_hours || 0), 0).toFixed(2)}h</span>`).join(' | ')}</div>
       <div class="entries-scroll">
       <table class="entry-table">
         <thead><tr>
-          <th class="col-state">State</th>          <th class="col-type">Type</th>
+          <th class="col-state">Animation</th>          <th class="col-type">Type</th>
           <th class="col-loop">Loop</th><th class="col-dur">Dur</th>
           <th class="col-desc">Description</th><th class="col-artist">Artist</th>
           <th class="col-proj">Proj</th><th class="col-actual">Actual</th>
@@ -456,12 +471,13 @@ function renderEntries() {
             const overBudget = e.projected_hours > 0 && e.actual_hours > e.projected_hours;
             // State name shown only on first row of this state group
             const firstEntry = stateEntries[0];
-            const linkUrl = firstEntry && firstEntry.asset_link ? (firstEntry.asset_link.match(/^https?:\/\//) ? firstEntry.asset_link : 'https://' + firstEntry.asset_link) : '';
-            const linkIcon = firstEntry && firstEntry.asset_link
-              ? `<a href="${esc(linkUrl)}" target="_blank" title="${esc(firstEntry.asset_link)}" class="state-link-icon" onclick="event.stopPropagation()">🔗</a>`
+            const rawLink = firstEntry ? (firstEntry.asset_link || '') : '';
+            const linkUrl = normalizeUrl(rawLink);
+            const linkIcon = linkUrl
+              ? `<a href="${esc(linkUrl)}" target="_blank" title="${esc(rawLink)}" class="state-link-icon" onclick="event.stopPropagation()">🔗</a>`
               : `<span class="state-link-icon" style="opacity:.3">🔗</span>`;
             const stateCell = idx === 0
-              ? `<td class="col-state" rowspan="${stateEntries.length}"><div class="state-label">${esc(animName)}<br><span class="state-hours">${stProj.toFixed(2)}h / ${stActual.toFixed(2)}h</span><br><span style="font-size:11px">${linkIcon} <a href="#" onclick="event.stopPropagation();setAssetLink(${firstEntry.id});return false" style="color:#1565c0;text-decoration:none" title="Set asset link">✎</a></span></div></td>`
+              ? `<td class="col-state" rowspan="${stateEntries.length}"><div class="state-label">${esc(animName)}<button class="state-del" title="Delete this animation" data-el="${esc(element)}" data-anim="${esc(animName)}" onclick="deleteState(this)">×</button><br><span class="state-hours">${stProj.toFixed(2)}h / ${stActual.toFixed(2)}h</span><br><span style="font-size:11px">${linkIcon} <a href="#" onclick="event.stopPropagation();setAssetLink(${firstEntry.id});return false" style="color:#1565c0;text-decoration:none" title="Set asset link">✎</a></span></div></td>`
               : '';
             return `<tr class="${e.alert_flag ? 'flagged' : ''}">
               ${stateCell}
@@ -506,7 +522,7 @@ function showAddEntryForm(prefillElement) {
     <form onsubmit="addEntry(event)">
       <div class="form-group"><label>Element</label><input name="element_name" value="${esc(prefillElement || "")}" required></div>
       <div class="form-row">
-        <div class="form-group"><label>State (Animation)</label><input name="animation_name" placeholder="Idle, Win"></div>
+        <div class="form-group"><label>Animation</label><input name="animation_name" placeholder="Idle, Win"></div>
         <div class="form-group"><label>Type</label>
           <select name="phase">${TYPES.map(p => `<option value="${p}">${p}</option>`).join('')}</select></div>
       </div>
@@ -523,7 +539,7 @@ function showAddEntryForm(prefillElement) {
         <div class="form-group"><label>Priority</label>
           <select name="priority">${PRIORITIES.map(p => `<option value="${p}" ${p==='Medium'?'selected':''}>${p}</option>`).join('')}</select>
         </div>
-        <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:8px"><label><input name="looping" type="checkbox"> Loop</label></div>
+        <div class="form-group checkbox-slot"><label class="checkbox-label"><input name="looping" type="checkbox"> Loop</label></div>
       </div>
       <button type="submit">Add</button>
     </form>
@@ -558,10 +574,10 @@ async function patchEntry(id, field, value) {
 
 async function setAssetLink(entryId) {
   const entry = currentEntries.find(e => e.id === entryId);
-  const currentUrl = entry ? entry.asset_link : '';
-  let u = prompt('Asset link', currentUrl);
-  if (u === null) return;
-  if (u && !u.match(/^https?:\/\//)) u = 'https://' + u;
+  const currentUrl = entry ? (entry.asset_link || '') : '';
+  const input = prompt('Asset link', currentUrl);
+  if (input === null) return;
+  const u = normalizeUrl(input);
   const result = await api("/entries/" + entryId, { method: "PUT", body: JSON.stringify({ asset_link: u }) });
   if (result) {
     const idx = currentEntries.findIndex(e => e.id === entryId);
@@ -643,6 +659,19 @@ async function toggleLoop(entryId) {
 async function deleteElement(name) {
   const ids = currentEntries.filter(e => e.element_name === name).map(e => e.id);
   if (!ids.length || !confirm(`Delete all ${ids.length} entries for "${name}"?`)) return;
+  for (const id of ids) await api("/entries/" + id, { method: "DELETE" });
+  refreshProjectView();
+}
+
+async function deleteState(btn) {
+  const element = btn.dataset.el;
+  const anim = btn.dataset.anim;
+  const ids = currentEntries
+    .filter(e => e.element_name === element && (e.animation_name || '(unnamed)') === anim)
+    .map(e => e.id);
+  if (!ids.length) return;
+  const noun = ids.length > 1 ? "entries" : "entry";
+  if (!confirm(`Delete ${ids.length} ${noun} for animation "${anim}"?`)) return;
   for (const id of ids) await api("/entries/" + id, { method: "DELETE" });
   refreshProjectView();
 }
