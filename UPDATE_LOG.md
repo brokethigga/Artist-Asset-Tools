@@ -113,8 +113,122 @@ Track all changes, decisions, and progress here.
 
 ---
 
+## 2026-09-28 — Live PHP app: delete animation, naming, checkbox, project save
+
+**Target: `php-build/adam/` (the app deployed to the live host via FileZilla).**
+An earlier pass in this session edited the FastAPI dev app on the wrong
+assumption; those edits remain uncommitted in `frontend/` and are not deployed.
+
+**Root cause behind "no permission for the database":** soft delete (`archived`)
+was applied to `blueprints`, `templates`, `projects` and `blueprint_states`, but
+**not to `entries`** — and entries are what an animation is made of. Deleting
+one ran `DELETE FROM entries`, which needs a `DELETE` grant that shared hosting
+often does not give. Archiving a project worked; deleting an animation inside
+one did not.
+
+### 1. Could not delete an animation in a project
+- `lib/db.php`: added `archived` to the `entries` schema for both MySQL and
+  SQLite, and added `entries` to the soft-delete migration list.
+- `lib/handlers.php`: `DELETE /entries/{id}` now runs
+  `UPDATE entries SET archived = 1` instead of `DELETE FROM entries`.
+  Attached images and entry history are retained. The API reports a clear
+  error if the `archived` column could not be created.
+- Entry lists, rollups and exports filter on `archived = 0`.
+- `frontend/app.js`: added `deleteState(element, animation)` plus a `×` button
+  in the animation cell; it archives every entry in the group across all phases.
+
+### 2. "+ State" renamed to "+ Animation"
+- Element header button, entry table column header, Add Entry form label.
+- Blueprint forms keep "state" wording — that is the blueprint-level term.
+
+### 3. Checkbox no longer aligned with its label
+- **Root cause:** `.form-group input { width:100%; padding:8px; border:1px solid #ddd }`
+  also matched checkboxes, stretching them across the row.
+- Added a checkbox reset and an inline-flex `.checkbox-label`; applied to every
+  form checkbox (Add Entry Loop, blueprint state rows, template element picker).
+
+### 4. Could not save the project
+- **`type="url"` silently blocked submit.** HTML5 validation rejects schemeless
+  values such as `drive.google.com/x`, so the browser refused to submit and only
+  showed a tooltip — no error, no request. Now `type="text"` with a shared
+  `normalizeUrl()` that prepends `https://`.
+- **Emptying an inline field wrote `NULL` into a `NOT NULL` column.**
+  `updateProjectField` sent `val || null`; the project PUT set
+  `name = NULL`, which is a 500 on `projects.name`. Handlers now coerce nulls to
+  `''` for NOT NULL columns (same bug existed on the entries PUT), and the
+  frontend refuses to blank the project name.
+
+### Also fixed
+- **Archived rows blocked their own name.** Blueprint create matched names
+  without `AND archived = 0`, so an archived blueprint made its name unusable.
+- **The soft-delete migration could break every request.** It ran an
+  `information_schema` query on both drivers (SQLite has no such table) and a
+  failure 500'd the whole app. Now driver-aware and non-fatal.
+- **Wrong Restore/Archive label.** The buttons keyed off the "Show archived"
+  filter instead of the row's own state. The API now returns `archived` on
+  projects, blueprints, templates and entries.
+- `esc()` escapes quotes; asset-link `<a>` got `rel="noopener"`.
+
+### Diagnostics
+- `GET /api/db-check` now reports `grants`: raw `SHOW GRANTS`, booleans for
+  SELECT/INSERT/UPDATE/DELETE/ALTER, and `soft_delete_ok` (whether `archived`
+  exists on all five tables). Check this first if archiving still fails.
+
+### Verification
+- `php -l` clean on all 7 PHP files.
+- 34 in-process API assertions on real SQLite — create/rename project,
+  null-to-NOT NULL guards, animation-group delete, rows retained, restore,
+  element delete, archived-name reuse, project archive/restore, rollup, entry
+  updates. All pass.
+- 26 frontend assertions over `esc()`, `normalizeUrl()`, the animation-group
+  predicate, label changes and project save. All pass.
+- **Not verified:** the MySQL path — no MySQL server available locally.
+
+---
+
+## Superseded — earlier 2026-09-28 pass against the FastAPI dev app
+- The four fixes below were applied to `frontend/app.js` and
+  `frontend/style.css` (the FastAPI dev app) before the live target was
+  identified. Still uncommitted; kept for parity but not deployed.
+
+### 1. Could not delete an animation (state) in a project
+- **Root cause:** only per-entry (`deleteEntry`) and per-element (`deleteElement`) deletes existed — no way to remove a whole `animation_name` group.
+- Added `deleteState(btn)` in `frontend/app.js` — collects every entry matching the element + animation and deletes them.
+- Added a `×` button in the animation cell (`frontend/app.js`, state cell markup) styled as `.state-del`.
+- Button carries `data-el` / `data-anim` and calls `deleteState(this)` so names containing quotes or apostrophes cannot break the inline handler.
+
+### 2. "+ State" renamed to "+ Animation"
+- Element header button: `+ State` → `+ Animation`
+- Entry table column header: `State` → `Animation`
+- Add Entry form label: `State (Animation)` → `Animation`
+- Entry filter bar placeholder: `State` → `Animation`
+- Template element picker: `(N states)` → `(N animations)`
+
+### 3. Checkbox no longer aligned with its label
+- **Root cause:** `style.css` rule `.form-group input { width:100%; padding:8px; border:1px solid #ddd }` also matched checkboxes, stretching the Add Entry `Loop` checkbox to full width. `width:auto` overrides existed for `.state-item` and `.entry-table` but not for `.form-group`.
+- Added `.form-group input[type="checkbox"]` reset (`width:auto`, no padding/border).
+- Added `label.checkbox-label` (`inline-flex`, `align-items:center`) and `.form-group .checkbox-slot`.
+- Applied to Add Entry `Loop`, blueprint state rows, and added a `.check-list` block for the template element picker.
+
+### 4. Could not save the project
+Two independent causes, both fixed:
+- **`type="url"` silently blocked submit.** HTML5 URL validation rejects schemeless values such as `drive.google.com/x`, so the browser refused to submit and only showed a native tooltip — no error, no request. Changed to `type="text"` and added a shared `normalizeUrl()` helper that prepends `https://` (matching the existing per-entry asset-link behaviour).
+- **Clearing the inline project name returned HTTP 500.** `updateProjectField` sent `val || null`, so an emptied name wrote `NULL` into the `NOT NULL` `projects.name` column. Verified against the server log: `IntegrityError: NOT NULL constraint failed: projects.name`. Now only genuinely nullable columns (`deadline`, `asset_link`, `summary`) are cleared to `null`.
+- `saveProject` wrapped in `try/catch` so a failure can no longer leave the modal in a half-saved state.
+
+### Hardening
+- `esc()` now escapes `"` and `'` (safe inside HTML attributes) and renders `0` as `"0"` instead of `""`.
+- Added shared `normalizeUrl()`; removed the duplicated URL-prefix logic from `setAssetLink()` and the state cell.
+- Project asset link `<a>` gained `rel="noopener"`.
+
+---
+
 ## Pending
 
+- [ ] Upload the 2026-09-28 PHP fixes to the live host via FileZilla, then check
+      `/adam/api/db-check` for `soft_delete_ok`
+- [ ] Port the same four fixes to the FastAPI dev app, or retire it in favour of
+      the PHP build
 - [ ] Phase 7: Exporter (Excel/CSV/PDF)
 - [ ] Phase 8: Backups
 - [ ] Phase 9: Deployment
@@ -125,6 +239,9 @@ Track all changes, decisions, and progress here.
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-09-28 | `php-build/adam/` is the app to fix and deploy | It is the PHP/MySQL app actually served on the live host; the FastAPI app is a parallel dev implementation |
+| 2026-09-28 | Soft delete everywhere, never hard DELETE | Avoids needing a `DELETE` grant (often withheld on shared hosting) and keeps data restorable |
+| 2026-09-28 | "Animation" is the project-view term, "state" stays on blueprints | Matches how users talk about the work |
 | 2026-07-27 | Multi-tenant from start | Sellable later, no codebase cloning |
 | 2026-07-27 | Invite link for onboarding | Self-service, standard SaaS pattern |
 | 2026-07-27 | First user per org = admin | Logical default, no separate setup needed |
@@ -133,6 +250,7 @@ Track all changes, decisions, and progress here.
 | 2026-07-27 | Project-level tags (not entry-level) | Tags filter project list, per user request |
 | 2026-07-27 | Per-entry asset link in state cell | Link per animation state, not just project |
 | 2026-07-27 | Default phase = "Animating" | Per user request (was "Drawing") |
+| 2026-09-28 | "State" renamed to "Animation" in project view | Animation is the user-facing term; "state" reserved for blueprint definitions |
 
 ---
 

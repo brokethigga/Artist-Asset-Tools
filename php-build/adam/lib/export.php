@@ -12,7 +12,8 @@ function handle_export(int $pid, string $format): void
     if (!$project) {
         throw new ApiError('Not found', 404);
     }
-    $entries = db_rows("SELECT * FROM entries WHERE project_id = $pid ORDER BY element_name, id");
+    $archivedFilter = db_have_archived('entries') ? ' AND archived = 0' : '';
+    $entries = db_rows("SELECT * FROM entries WHERE project_id = $pid$archivedFilter ORDER BY element_name, id");
     $safeName = preg_replace('/[^\w\s-]/', '', $project['name']);
     $safeName = trim($safeName);
     $safeName = str_replace(' ', '_', $safeName);

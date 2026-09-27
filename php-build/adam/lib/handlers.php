@@ -29,7 +29,9 @@ function handle_blueprints(string $method, array $seg): void
             if ($name === '') {
                 throw new ApiError('Name is required');
             }
-            $existing = db_row("SELECT id FROM blueprints WHERE name = " . db_quote($name) . " AND organization_id = $orgId");
+            // Only active rows block a reuse of the name; an archived row with
+            // the same name is restorable rather than a conflict.
+            $existing = db_row("SELECT id FROM blueprints WHERE name = " . db_quote($name) . " AND organization_id = $orgId AND archived = 0");
             if ($existing) {
                 throw new ApiError('Blueprint name already exists', 400);
             }
@@ -104,6 +106,7 @@ function blueprint_out(array $r): array
         'organization_id' => (int)$r['organization_id'],
         'name' => (string)$r['name'],
         'description' => (string)($r['description'] ?? ''),
+        'archived' => to_bool($r['archived'] ?? 0),
         'created_at' => (string)$r['created_at'],
         'states' => array_map(function ($s) {
             return [
@@ -214,6 +217,7 @@ function template_out(array $r): array
         'organization_id' => (int)$r['organization_id'],
         'name' => (string)$r['name'],
         'description' => (string)($r['description'] ?? ''),
+        'archived' => to_bool($r['archived'] ?? 0),
         'created_at' => (string)$r['created_at'],
         'blueprints' => $blueprints,
     ];
@@ -294,22 +298,35 @@ function handle_projects(string $method, array $seg): void
         }
         if ($method === 'PUT') {
             $data = json_body();
-            $allowed = ['name', 'status', 'game_type', 'customer', 'deadline', 'summary', 'asset_link', 'archived'];
+            $allowed = ['name', 'status', 'game_type', 'customer', 'deadline', 'summary', 'asset_link'];
+            // Columns declared NOT NULL in the schema. Writing NULL to these
+            // raises a MySQL error, which is what made inline edits (such as
+            // clearing the project name) fail to save.
+            $notNull = ['name', 'status', 'game_type', 'customer', 'asset_link'];
             $sets = [];
             foreach ($allowed as $field) {
-                if (array_key_exists($field, $data)) {
-                    $v = $data[$field];
-                    if ($v === null) {
-                        $sets[] = "$field = NULL";
+                if (!array_key_exists($field, $data)) {
+                    continue;
+                }
+                $v = $data[$field];
+                if ($v === null) {
+                    if (in_array($field, $notNull, true)) {
+                        $v = '';
                     } else {
-                        $sets[] = "$field = " . db_quote((string)$v);
+                        $sets[] = "$field = NULL";
+                        continue;
                     }
                 }
+                $sets[] = "$field = " . db_quote((string)$v);
+            }
+            // archived is a TINYINT flag, not a string.
+            if (array_key_exists('archived', $data)) {
+                $sets[] = 'archived = ' . (int)(bool)$data['archived'];
             }
             if ($sets) {
                 db_exec('UPDATE projects SET ' . implode(', ', $sets) . ' WHERE id = ' . $pid);
             }
-            json_out(['ok' => true]);
+            json_out(project_out(db_row('SELECT * FROM projects WHERE id = ' . $pid)));
         }
         if ($method === 'DELETE') {
             db_exec("UPDATE projects SET archived = 1 WHERE id = $pid");
@@ -322,7 +339,8 @@ function handle_projects(string $method, array $seg): void
 
     // /projects/{id}/entries
     if ($sub === 'entries' && count($seg) === 3 && $method === 'GET') {
-        $rows = db_rows("SELECT * FROM entries WHERE project_id = $pid ORDER BY element_name, id");
+        $archivedFilter = db_have_archived('entries') ? ' AND archived = 0' : '';
+        $rows = db_rows("SELECT * FROM entries WHERE project_id = $pid$archivedFilter ORDER BY element_name, id");
         $out = [];
         foreach ($rows as $e) {
             $out[] = entry_out($e);
@@ -410,13 +428,15 @@ function project_out(array $r): array
         'deadline' => $r['deadline'] !== null && $r['deadline'] !== '' ? (string)$r['deadline'] : null,
         'summary' => $r['summary'] !== null ? (string)$r['summary'] : null,
         'asset_link' => $r['asset_link'] !== null ? (string)$r['asset_link'] : null,
+        'archived' => to_bool($r['archived'] ?? 0),
         'created_at' => (string)$r['created_at'],
     ];
 }
 
 function project_rollup(int $pid): array
 {
-    $entries = db_rows("SELECT * FROM entries WHERE project_id = $pid");
+    $archivedFilter = db_have_archived('entries') ? ' AND archived = 0' : '';
+    $entries = db_rows("SELECT * FROM entries WHERE project_id = $pid$archivedFilter");
     $totalProjected = 0.0;
     $totalActual = 0.0;
     $byElement = [];
@@ -533,22 +553,36 @@ function handle_entries(string $method, array $seg): void
             }
             if ($method === 'PUT') {
                 $data = json_body();
-                $allowed = ['element_name', 'animation_name', 'looping', 'duration', 'description', 'artist', 'projected_hours', 'actual_hours', 'priority', 'phase', 'alert_flag', 'alert_flag_reason', 'image_path', 'status', 'asset_link'];
+                $allowed = ['element_name', 'animation_name', 'looping', 'duration', 'description', 'artist', 'projected_hours', 'actual_hours', 'priority', 'phase', 'alert_flag', 'alert_flag_reason', 'image_path', 'status', 'asset_link', 'archived'];
+                // Columns declared NOT NULL in the schema; NULL there is a
+                // hard SQL error rather than a clearable value.
+                $notNull = ['element_name', 'animation_name', 'duration', 'description', 'artist', 'priority', 'status', 'asset_link', 'image_path'];
                 $sets = [];
                 $updatedHours = false;
                 foreach ($allowed as $field) {
-                    if (array_key_exists($field, $data)) {
-                        $v = $data[$field];
-                        if ($v === null) {
-                            $sets[] = "$field = NULL";
-                        } elseif ($field === 'looping' || $field === 'alert_flag') {
-                            $sets[] = "$field = " . (get_bool($data, $field, false) ? 1 : 0);
-                        } elseif (in_array($field, ['projected_hours', 'actual_hours'], true)) {
-                            $sets[] = "$field = " . get_float($data, $field);
-                            $updatedHours = true;
+                    if (!array_key_exists($field, $data)) {
+                        continue;
+                    }
+                    $v = $data[$field];
+                    if ($field === 'archived') {
+                        $sets[] = 'archived = ' . (int)(bool)$v;
+                        continue;
+                    }
+                    if ($v === null) {
+                        if (in_array($field, $notNull, true)) {
+                            $v = '';
                         } else {
-                            $sets[] = "$field = " . db_quote((string)$v);
+                            $sets[] = "$field = NULL";
+                            continue;
                         }
+                    }
+                    if ($field === 'looping' || $field === 'alert_flag') {
+                        $sets[] = "$field = " . (get_bool($data, $field, false) ? 1 : 0);
+                    } elseif (in_array($field, ['projected_hours', 'actual_hours'], true)) {
+                        $sets[] = "$field = " . get_float($data, $field);
+                        $updatedHours = true;
+                    } else {
+                        $sets[] = "$field = " . db_quote((string)$v);
                     }
                 }
                 if ($sets) {
@@ -567,8 +601,17 @@ function handle_entries(string $method, array $seg): void
                 json_out(entry_out(db_row('SELECT * FROM entries WHERE id = ' . $eid)));
             }
             if ($method === 'DELETE') {
-                db_exec("DELETE FROM entry_images WHERE entry_id = $eid");
-                db_exec("DELETE FROM entries WHERE id = $eid");
+                // Soft delete. Hard `DELETE FROM entries` needs the DELETE
+                // grant, which shared hosts commonly withhold, and it would
+                // throw away the entry's history and attached images.
+                if (!db_have_archived('entries')) {
+                    throw new ApiError(
+                        'Soft delete unavailable: the `entries.archived` column is missing. '
+                        . 'The database user needs ALTER to add it (see /api/db-check).',
+                        500
+                    );
+                }
+                db_exec("UPDATE entries SET archived = 1 WHERE id = $eid");
                 json_out(['ok' => true]);
             }
             throw new ApiError('Method not allowed', 405);
@@ -626,6 +669,7 @@ function entry_out(array $e): array
         'project_id' => (int)$e['project_id'],
         'element_name' => (string)$e['element_name'],
         'animation_name' => (string)($e['animation_name'] ?? ''),
+        'archived' => to_bool($e['archived'] ?? 0),
         'looping' => to_bool($e['looping']),
         'duration' => (string)($e['duration'] ?? ''),
         'description' => (string)($e['description'] ?? ''),

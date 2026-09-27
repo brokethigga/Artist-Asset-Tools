@@ -9,4 +9,10 @@ brain/
 choreo-tool-build-prompt.md
 project-plan.md
 AGENTS.md
+
+# Live MySQL credentials for the PHP app. db.php looks for admin/pass.php at
+# several locations relative to itself, including a repo-root admin/ if this
+# checkout mirrors the hosting layout. Never commit these.
 php-build/admin/
+admin/
+pass.php

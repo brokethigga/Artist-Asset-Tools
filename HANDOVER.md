@@ -7,11 +7,19 @@ For Claude or any developer picking up this project.
 ## What This Is
 
 A **Choreography Management Tool** for animation studios. Tracks animation
-elements (Wild, Scatter, Pot), states (Idle, Win, Bonus), artists, hours,
+elements (Wild, Scatter, Pot), animations (Idle, Win, Bonus), artists, hours,
 and progress across projects.
 
-**Currently:** Multi-tenant web app (FastAPI + PostgreSQL/SQLite + vanilla JS)
-**Expanding to:** Hosted SaaS with export, backups, deployment
+**Live site:** the **PHP/MySQL build in `php-build/adam/`**, deployed to shared
+hosting by uploading files via **FileZilla**. This is the app users actually
+use.
+
+**Dev source:** **FastAPI + SQLite + vanilla JS** in `backend/` + `frontend/`.
+This is a parallel implementation used for local development. Changes made
+here do **not** reach the live site unless the PHP build is changed and
+uploaded.
+
+> If you are fixing a bug users can see, fix it in `php-build/adam/`.
 
 ---
 
@@ -25,12 +33,21 @@ run.bat
 http://localhost:8000/app
 ```
 
+### Deploying a change to the live site
+
+1. Edit the files under `php-build/adam/`.
+2. Upload them to the hosting account with FileZilla (same relative paths).
+3. Hard-refresh the browser. No server restart is needed — PHP is interpreted
+   per request, so there is nothing to cache.
+4. If something writes to the database, check `https://<host>/adam/api/db-check`
+   for connection and grant problems (see "Database Diagnostics").
+
 ---
 
 ## Codebase Structure
 
 ```
-├── backend/
+├── backend/              # FastAPI dev app (NOT the live site)
 │   ├── main.py          # FastAPI routes (~810 lines)
 │   ├── models.py        # SQLAlchemy models (~165 lines)
 │   ├── schemas.py       # Pydantic schemas (~220 lines)
@@ -40,12 +57,27 @@ http://localhost:8000/app
 │   ├── alembic/         # Database migrations
 │   └── requirements.txt
 │
-├── frontend/
+├── frontend/             # Vanilla JS for the FastAPI dev app
 │   ├── index.html       # Entry point
 │   ├── app.js           # SPA logic (~795 lines)
 │   └── style.css        # Styles (~195 lines)
 │
-├── uploads/             # User-uploaded images
+├── php-build/adam/       # THE LIVE APP — upload this via FileZilla
+│   ├── index.php        # Front controller, routing, error handling
+│   ├── .htaccess        # Apache rewrite to index.php
+│   ├── lib/
+│   │   ├── db.php       # MySQL + SQLite adapters, schema, soft-delete migration
+│   │   ├── helpers.php  # Query wrappers, json_out, input parsing
+│   │   ├── auth.php     # Google OAuth + email whitelist, signed-cookie sessions
+│   │   ├── handlers.php # CRUD for blueprints/templates/projects/entries/tags
+│   │   ├── export.php   # XLSX/CSV export
+│   │   └── import_docx.php
+│   ├── frontend/        # The UI that users see
+│   ├── data/            # local SQLite only (production uses MySQL)
+│   └── uploads/         # User-uploaded images
+│
+├── admin/pass.php       # MySQL credentials for the live site (NOT in git)
+├── uploads/             # User-uploaded images (dev)
 ├── references/          # Source choreography docs
 ├── .env                 # Environment variables
 ├── run.bat              # Launch script
@@ -77,14 +109,19 @@ http://localhost:8000/app
 Organization (tenant)
 ├── User (Google OAuth, role, approved)
 ├── Blueprint (element + states)
+│   └── BlueprintState
 ├── Template (group of blueprints)
-├── Tag (project-level labels, optional)
+│   └── TemplateBlueprint
+├── InviteLink
 └── Project (instance of a template)
+    ├── Tag (project-level labels)
     ├── Entry (task with hours, priority, alerts, phase, asset_link)
-    │   ├── EntryImage (multiple images)
-    │   └── EntryTag (assigned tags — removed, tags are project-level only)
+    │   └── EntryImage (multiple images)
     └── Comment (with cross-linking)
 ```
+
+Note: an earlier `EntryTag` table existed and was removed — tags are
+project-level only.
 
 ### Multi-Tenancy
 
@@ -165,11 +202,13 @@ Organization (tenant)
 - Collapsible element sections
 - Type summary bar per element
 - Real-time updates without page refresh
-- Entry filter bar (state, type, artist, priority, flag, status)
+- Entry filter bar (animation, type, artist, priority, flag, status)
 - Project-level tags with filter on project list
-- Per-entry asset link (icon in state cell)
+- Per-entry asset link (icon in animation cell)
 - Default entry type changed to "Animating"
 - `phase` serialization fix (FastAPI 0.139.x)
+- Delete an entire animation group (× in the animation cell)
+- "State" → "Animation" wording throughout the project view
 
 ---
 
@@ -251,7 +290,7 @@ alembic upgrade head
 
 ---
 
-## Current Status — Updated 2026-08-16
+## Current Status — Updated 2026-09-28
 
 ### Phase Progress
 | Phase | Feature | Status |
@@ -261,7 +300,85 @@ alembic upgrade head
 | 8 | Database backups | ⏳ Not started |
 | 9 | Deployment | 🔄 In planning — see below |
 
-### What Happened This Session (2026-08-16)
+### What Happened This Session (2026-09-28)
+
+The four reported bugs were real bugs in the **PHP/MySQL app that runs on the
+live site** (`php-build/adam/`), not in the FastAPI dev app. An earlier pass in
+this session had edited the FastAPI frontend on the wrong assumption; those
+edits are still uncommitted in `frontend/` and are not what ships.
+
+**Root cause of "I don't have permission for the database":** the app already
+soft-deleted (`archived`) blueprints, templates, projects and blueprint states
+— but **not entries**. Entry deletion was a hard `DELETE FROM entries`, and
+`DELETE` is one of the grants shared hosting commonly withholds. So archiving a
+project worked, but deleting an animation inside a project did not. Entries now
+use the same soft-delete pattern.
+
+1. **Could not delete an animation.** `entries` never got an `archived` column,
+   so `DELETE /entries/{id}` issued a real `DELETE`. Added `archived` to the
+   entries schema (both MySQL and SQLite) and to the soft-delete migration;
+   `DELETE` is now `UPDATE entries SET archived = 1`. Entry lists, rollups and
+   exports filter on `archived = 0`; images and history are retained. Added
+   `deleteState(element, animation)` and a `×` button in the animation cell.
+2. **"+ State" → "+ Animation."** Element header button, table column header
+   and Add Entry label renamed. Blueprint forms keep "state" wording — that is
+   the blueprint-level term.
+3. **Checkbox misaligned with its label.** `style.css` had
+   `.form-group input { width:100%; padding:8px; border:1px solid #ddd }`, which
+   also matched checkboxes and stretched the Add Entry `Loop` checkbox across
+   the row. Added a checkbox reset plus an inline-flex `.checkbox-label`, applied
+   to every form checkbox in the app.
+4. **Could not save the project.** Two causes:
+   - `<input type="url">` triggered HTML5 native validation, which silently
+     blocked submit for schemeless values like `drive.google.com/x` (browser
+     tooltip only, no request sent). Now `type="text"` with a shared
+     `normalizeUrl()` that prepends `https://`.
+   - `updateProjectField` sent `val || null`, so an emptied inline field wrote
+     `NULL` into `NOT NULL` columns (`projects.name`, and the same class of bug
+     existed for entries). The handlers now coerce nulls to `''` for
+     NOT NULL columns, and the frontend refuses to blank the project name.
+
+Also fixed along the way:
+
+- **Archived rows blocked their own name.** Blueprint create checked for a name
+  match without `AND archived = 0`, so an archived blueprint made its own name
+  unusable. Now only active rows conflict.
+- **The soft-delete migration could take down every request.** It ran an
+  `information_schema` query unconditionally, so it also ran on SQLite (where
+  that query does not exist) and a host without `ALTER` would 500 on *every*
+  request. It is now driver-aware and non-fatal.
+- **Restore/Archive buttons showed the wrong label.** They keyed off the
+  "Show archived" filter toggle instead of the row's own `archived` value. The
+  API now returns `archived` on projects, blueprints, templates and entries, and
+  archived cards are marked.
+
+### Database Diagnostics
+
+`GET /api/db-check` is public and safe (no data, no secrets). It reports the
+driver, which candidate database name connected, the MySQL version, and — new —
+`grants`: the raw `SHOW GRANTS` output plus booleans for
+SELECT/INSERT/UPDATE/DELETE/ALTER, and whether the `archived` column exists on
+each table that needs it (`soft_delete_ok`).
+
+Check this first if archiving still fails. If `soft_delete_ok` is `false`, the
+MySQL user needs the `ALTER` privilege (or an admin must add the column once);
+the app cannot archive entries without it and will say so explicitly rather
+than failing obscurely.
+
+### Verification performed
+
+- `php -l` clean on all 7 PHP files.
+- 34 in-process API assertions against a real SQLite database, covering:
+  project create/rename, null-to-NOT NULL guards, animation-group delete,
+  rows retained after delete, restore, element delete, archived-name reuse,
+  project archive/restore, rollup and entry updates. All pass.
+- 26 frontend assertions over `esc()`, `normalizeUrl()`, the animation-group
+  matching predicate, the label changes, and the project-save changes. All pass.
+- **Not verified:** the MySQL code path, since there is no MySQL server
+  available locally. The MySQL branch reuses the original, already-in-production
+  `information_schema` query, and the grants report is new code.
+
+### Earlier This Cycle (2026-08-16)
 
 **Problem:** App was moved to a new computer and couldn't run.
 

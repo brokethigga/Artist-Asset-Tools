@@ -189,6 +189,45 @@ function db()
 
 // ── Schema ──
 
+/**
+ * True when $table has a column named $column. Driver-aware: MySQL is checked
+ * via information_schema, SQLite via PRAGMA table_info.
+ */
+function table_column_exists(string $table, string $column): bool
+{
+    if (db_driver() === 'mysql') {
+        // Deliberately avoids db_quote(): this runs from the db-check
+        // diagnostic, which has to work even when the main connection is the
+        // thing that is broken. Values here are hardcoded identifiers.
+        $t = str_replace("'", "''", $table);
+        $c = str_replace("'", "''", $column);
+        return (int)db_scalar(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS"
+            . " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$t' AND COLUMN_NAME = '$c'"
+        ) > 0;
+    }
+    $rows = db_rows('PRAGMA table_info(' . $table . ')');
+    foreach ($rows as $row) {
+        if (isset($row['name']) && strcasecmp((string)$row['name'], $column) === 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * True when $table supports soft delete. Used to let the API report a clear
+ * error instead of a raw SQL error when the archived migration was blocked.
+ */
+function db_have_archived(string $table): bool
+{
+    $ready = $GLOBALS['__archived_tables'] ?? null;
+    if (!is_array($ready)) {
+        return table_column_exists($table, 'archived');
+    }
+    return in_array($table, $ready, true);
+}
+
 function bootstrap_db($db, string $driver): void
 {
     if ($driver === 'mysql') {
@@ -197,14 +236,34 @@ function bootstrap_db($db, string $driver): void
         sqlite_schema($db);
     }
 
-    // Add archived column to existing tables if missing
-    $archivedTables = ['blueprints', 'templates', 'projects', 'blueprint_states'];
+    // Soft-delete (archived) columns.
+    //
+    // These tables are archived with `UPDATE ... SET archived = 1` instead of
+    // `DELETE FROM ...` so the app never needs the DELETE grant (many shared
+    // hosts do not grant it) and so data can be restored later.
+    //
+    // 'entries' MUST be in this list: entry rows are what a project "State /
+    // Animation" is made of, and archiving them is the only way to remove one
+    // without a hard DELETE.
+    $archivedTables = ['blueprints', 'templates', 'projects', 'blueprint_states', 'entries'];
+
+    // The migration below needs ALTER; a host without it must degrade to a
+    // logged warning rather than 500 every single request.
+    $softDeleteReady = [];
     foreach ($archivedTables as $t) {
-        $col = db_scalar("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$t' AND COLUMN_NAME = 'archived'");
-        if ((int)$col === 0) {
-            db_exec("ALTER TABLE `$t` ADD COLUMN archived TINYINT NOT NULL DEFAULT 0");
+        try {
+            $needsColumn = !table_column_exists($t, 'archived');
+            if ($needsColumn) {
+                db_exec("ALTER TABLE `$t` ADD COLUMN archived TINYINT NOT NULL DEFAULT 0");
+                error_log("[bootstrap] added archived column to `$t`");
+            }
+            $softDeleteReady[] = $t;
+        } catch (Throwable $e) {
+            error_log('[bootstrap] could not add `archived` to `' . $t . '`: ' . $e->getMessage());
         }
     }
+    // Cache for db_have_archived() so request code can degrade gracefully.
+    $GLOBALS['__archived_tables'] = $softDeleteReady;
 
     // Seed organization
     $count = (int)db_scalar('SELECT COUNT(*) FROM organizations WHERE id = 1');
@@ -295,6 +354,7 @@ function sqlite_schema(SQLite3 $db): void
         project_id INTEGER NOT NULL,
         element_name TEXT NOT NULL,
         animation_name TEXT DEFAULT "",
+        archived INTEGER NOT NULL DEFAULT 0,
         looping INTEGER DEFAULT 0,
         duration TEXT DEFAULT "",
         description TEXT DEFAULT "",
@@ -430,6 +490,7 @@ function mysql_schema($db): void
         project_id INT NOT NULL,
         element_name VARCHAR(255) NOT NULL,
         animation_name VARCHAR(255) NOT NULL DEFAULT "",
+        archived TINYINT NOT NULL DEFAULT 0,
         looping TINYINT NOT NULL DEFAULT 0,
         duration VARCHAR(50) NOT NULL DEFAULT "",
         description TEXT NOT NULL,
@@ -567,7 +628,7 @@ function db_connection_report(): array
     $errors = [];
     $chosen = null;
     $conn = mysql_attempt_connect($cfg, $candidates, $errors, $chosen);
-    return [
+    $report = [
         'driver' => 'mysql',
         'host' => (string)($cfg['host'] ?? 'localhost'),
         'user' => (string)($cfg['user'] ?? ''),
@@ -578,6 +639,66 @@ function db_connection_report(): array
         'errors' => $errors,
         'ok' => $conn !== null,
     ];
+    if ($conn !== null) {
+        $report['grants'] = mysql_grant_summary($conn);
+    }
+    return $report;
+}
+
+/**
+ * Summarise what the configured MySQL user is actually allowed to do.
+ *
+ * The app archives (soft-deletes) instead of deleting, so the grants that
+ * matter day to day are SELECT / INSERT / UPDATE. DELETE and ALTER are
+ * reported too: DELETE is not required, ALTER is only needed once so the
+ * `archived` columns can be added.
+ */
+function mysql_grant_summary(mysqli $conn): array
+{
+    $out = [
+        'raw' => [],
+        'has_select' => false,
+        'has_insert' => false,
+        'has_update' => false,
+        'has_delete' => false,
+        'has_alter' => false,
+        'archived_columns' => [],
+        'missing_archived_columns' => [],
+    ];
+
+    $res = $conn->query('SHOW GRANTS');
+    if ($res) {
+        while ($row = $res->fetch_row()) {
+            $out['raw'][] = (string)$row[0];
+        }
+    }
+    $grants = strtoupper(implode(' ', $out['raw']));
+    $out['has_select'] = strpos($grants, 'SELECT') !== false;
+    $out['has_insert'] = strpos($grants, 'INSERT') !== false;
+    $out['has_update'] = strpos($grants, 'UPDATE') !== false;
+    $out['has_delete'] = strpos($grants, 'DELETE') !== false;
+    $out['has_alter'] = strpos($grants, 'ALTER') !== false;
+
+    // The app needs the soft-delete column on these tables to archive anything.
+    // Probed defensively: a failure here must not blank out the whole report.
+    $probeError = null;
+    foreach (['blueprints', 'templates', 'projects', 'blueprint_states', 'entries'] as $t) {
+        try {
+            if (table_column_exists($t, 'archived')) {
+                $out['archived_columns'][] = $t;
+            } else {
+                $out['missing_archived_columns'][] = $t;
+            }
+        } catch (Throwable $e) {
+            $probeError = $e->getMessage();
+            $out['missing_archived_columns'][] = $t;
+        }
+    }
+    if ($probeError !== null) {
+        $out['column_probe_error'] = $probeError;
+    }
+    $out['soft_delete_ok'] = count($out['missing_archived_columns']) === 0;
+    return $out;
 }
 
 function migrate_sqlite_to_mysql(): array
