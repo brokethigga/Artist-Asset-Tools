@@ -6,6 +6,64 @@ Track all changes, decisions, and progress here.
 
 ---
 
+## 2026-10-13 — PHP app: keep element rows, blueprints priority, asset guide
+
+**Target: `php-build/adam/` (live app, deployed via FileZilla). Four approved
+changes. Auto-migrates on first request after upload.**
+
+### 1. Blueprints with zero animation states still appear in projects
+- Applying a template with a `states: []` blueprint now inserts a placeholder
+  entry (`animation_name = ''`) instead of silently dropping the element.
+- Template apply also skips archived blueprints and stamps `entries.blueprint_id`.
+- One-time backfill (new `app_meta` table, key `backfill_elements_v1`, guarded
+  by `INSERT ... OR/IGNORE`): existing template-created projects get
+  (a) `blueprint_id` stamped on matching entries and (b) placeholder entries
+  for missing no-state elements. Runs during `bootstrap_db()`, once, non-fatal.
+
+### 2. "+ Add Entry" can pull from Blueprints
+- Add Entry modal gains a Blueprint select + animation (state) picker. Choosing
+  one prefills element / animation / looping / duration / description.
+- `POST /entries` accepts optional `blueprint_id`; `entry_out` returns it.
+
+### 3. Blueprint priority orders element sections
+- New `blueprints.priority` (`High`/`Medium`/`Low`, default `Medium`),
+  validated by `safe_priority()` in `helpers.php`.
+- `GET /projects/{id}/entries` sorts in PHP: priority rank
+  (High=0, Medium=1, Low=2) → `element_name` → `id`. Project view shows a
+  priority badge in each element header. Exports keep `element_name` ordering.
+
+### 4. Asset Guide per project + Word export
+- New project fields: `exported_location`, `exported_format`, `source_location`,
+  `source_format` (default `''`), `skin_list` (nullable), `resize_from_spine`
+  (default `''`), `preview_link` (default `''`).
+- Project detail has an Asset Guide panel (collapsible) and **Export Asset
+  Guide** → `{name}_asset_guide.docx` via `export_asset_guide_docx()` in
+  `lib/export.php` (title, field table, element list).
+
+### Files changed
+- `php-build/adam/lib/db.php` — CREATE TABLE + `$extraColumns` ALTER migration
+  for both drivers, `app_meta`, backfill function.
+- `php-build/adam/lib/helpers.php` — `safe_priority()`.
+- `php-build/adam/lib/handlers.php` — blueprint priority, entries sort,
+  `blueprint_id` pass-through, placeholder on template apply, asset-guide PUT/GET.
+- `php-build/adam/lib/export.php` — `asset-guide` export.
+- `php-build/adam/frontend/app.js` — priority select/badge, blueprints picker
+  in Add Entry, Asset Guide panel + export button.
+
+### Verification
+- `php -l` clean on all changed PHP files; `node --check` clean on `app.js`.
+- 22 end-to-end API assertions against a live `php -S` server on a real SQLite
+  DB (isolated temp dir), all pass: placeholder entry creation, backfill
+  one-time repair + `blueprint_id` stamping, priority ordering, Add-from-Blueprint,
+  PUT/GET of all 7 asset-guide fields, asset-guide docx download (valid zip,
+  `word/document.xml` contains the guide fields and element list).
+- Harness lives in `%TEMP%\opencode\adamtest` (router.php, run_tests.ps1,
+  php.ini for the winget PHP's sqlite3 ext) — reusable.
+- **Not verified:** MySQL paths (no local MySQL). `/api/db-check` after upload
+  will confirm columns/grants.
+
+---
+
 ## 2026-07-27 — Phase 1-6 Complete
 
 ### Phase 1: Foundation
@@ -225,9 +283,13 @@ Two independent causes, both fixed:
 
 ## Pending
 
+- [x] (2026-10-13) Blueprint→keep-element placeholder + `blueprint_id`, blueprint
+      priority ordering, Add-from-Blueprint, per-project Asset Guide + docx —
+      **still to upload to the live host via FileZilla**, then check
+      `/adam/api/db-check`
 - [ ] Upload the 2026-09-28 PHP fixes to the live host via FileZilla, then check
       `/adam/api/db-check` for `soft_delete_ok`
-- [ ] Port the same four fixes to the FastAPI dev app, or retire it in favour of
+- [ ] Port the same fixes to the FastAPI dev app, or retire it in favour of
       the PHP build
 - [ ] Phase 7: Exporter (Excel/CSV/PDF)
 - [ ] Phase 8: Backups
@@ -251,6 +313,10 @@ Two independent causes, both fixed:
 | 2026-07-27 | Per-entry asset link in state cell | Link per animation state, not just project |
 | 2026-07-27 | Default phase = "Animating" | Per user request (was "Drawing") |
 | 2026-09-28 | "State" renamed to "Animation" in project view | Animation is the user-facing term; "state" reserved for blueprint definitions |
+| 2026-10-13 | Blueprint priority orders element sections in a project | User's chosen meaning for "priority" |
+| 2026-10-13 | Asset Guide fields are per project | Fields differ per project; docx export per project |
+| 2026-10-13 | No-state blueprints appear as placeholder entries | Element must stay visible even with no animations yet |
+| 2026-10-13 | One-time backfill is guarded by `app_meta`, runs in `bootstrap_db` | Idempotent repair; never repeats; auto-applies on deploy |
 
 ---
 

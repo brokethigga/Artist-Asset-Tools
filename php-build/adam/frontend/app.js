@@ -210,7 +210,7 @@ async function loadBlueprints() {
       <div class="card" data-name="${esc(b.name.toLowerCase())}">
         <h3>${esc(b.name)}</h3>
         <p>${esc(b.description) || "—"}</p>
-        <div class="meta">${b.states.length} animation states</div>
+        <div class="meta">${b.states.length} animation states · Priority: <strong>${esc(b.priority || 'Medium')}</strong></div>
         <div class="card-actions">
           <button class="small" onclick="showBlueprintForm(${b.id})">Edit</button>
           <button class="small danger" onclick="deleteBlueprint(${b.id})">${showArchivedBp ? 'Restore' : 'Archive'}</button>
@@ -235,6 +235,8 @@ function showBlueprintForm(id) {
     <form onsubmit="saveBlueprint(event, ${id || ''})">
       <div class="form-group"><label>Element Name</label><input name="name" value="${bp ? esc(bp.name) : ''}" required placeholder="e.g. Wild, Scatter, Pot"></div>
       <div class="form-group"><label>Description</label><textarea name="description">${bp ? esc(bp.description) : ''}</textarea></div>
+      <div class="form-group"><label>Priority</label>
+        <select name="priority">${PRIORITIES.map(p => `<option value="${p}" ${(bp ? bp.priority : 'Medium') === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
       <div class="form-group"><label>Animation States</label><div id="states-container">${statesHtml}</div>
         <button type="button" class="secondary small" style="margin-top:4px" onclick="addStateRow()">+ Add state</button></div>
       <button type="submit">${id ? "Save" : "Create"}</button>
@@ -262,7 +264,7 @@ async function saveBlueprint(e, id) {
     const inputs = el.querySelectorAll("input");
     states.push({ name: inputs[0].value, default_looping: inputs[1].checked, default_duration: inputs[2].value, default_description: inputs[3].value });
   }
-  const body = JSON.stringify({ name: fd.get("name"), description: fd.get("description"), states });
+  const body = JSON.stringify({ name: fd.get("name"), description: fd.get("description"), priority: fd.get("priority") || "Medium", states });
   if (id) await api("/blueprints/" + id, { method: "PUT", body });
   else await api("/blueprints", { method: "POST", body });
   closeModal(); loadBlueprints();
@@ -477,6 +479,8 @@ async function openProject(id) {
   currentProject = await api("/projects/" + id);
   currentEntries = await api("/projects/" + id + "/entries");
   currentProjectTags = await api("/projects/" + id + "/tags");
+  blueprints = await api("/blueprints").catch(() => []);
+  if (!Array.isArray(blueprints)) blueprints = [];
   document.getElementById("project-list").innerHTML = "";
   document.getElementById("project-list").classList.add("hidden");
   document.getElementById("project-detail").classList.remove("hidden");
@@ -534,6 +538,49 @@ async function editAssetLink() {
   renderProjectDetail();
 }
 
+function showAssetGuideForm() {
+  const p = currentProject;
+  showModal(`
+    <h3>Asset Guide</h3>
+    <p style="font-size:12px;color:#666;margin-top:-4px">Details to include when you hand the exported asset over to the programmer.</p>
+    <form onsubmit="saveAssetGuide(event)">
+      <div class="form-group"><label>Exported Location</label><input name="exported_location" value="${esc(p.exported_location || '')}" placeholder="e.g. /art/Alice/export/"></div>
+      <div class="form-group"><label>Exported Format</label><input name="exported_format" value="${esc(p.exported_format || '')}" placeholder="e.g. PNG sequence, Spine atlas, WEBM"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Source File Location</label><input name="source_location" value="${esc(p.source_location || '')}" placeholder="e.g. projects/Alice/*.psd"></div>
+        <div class="form-group"><label>Source File Format</label><input name="source_format" value="${esc(p.source_format || '')}" placeholder="e.g. .psd, .ai, .spine"></div>
+      </div>
+      <div class="form-group"><label>Skin List</label><textarea name="skin_list" rows="4" placeholder="One skin per line">${esc(p.skin_list || '')}</textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label>Resize (%) from Spine</label><input name="resize_from_spine" value="${esc(p.resize_from_spine || '')}" placeholder="e.g. 100%, 75%"></div>
+        <div class="form-group"><label>Preview Link</label><input name="preview_link" value="${esc(p.preview_link || '')}" placeholder="https://drive.google.com/..."></div>
+      </div>
+      <button type="submit">Save</button>
+    </form>
+  `);
+}
+
+async function saveAssetGuide(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {
+    exported_location: fd.get("exported_location") || "",
+    exported_format: fd.get("exported_format") || "",
+    source_location: fd.get("source_location") || "",
+    source_format: fd.get("source_format") || "",
+    skin_list: fd.get("skin_list") || "",
+    resize_from_spine: fd.get("resize_from_spine") || "",
+    preview_link: normalizeUrl(fd.get("preview_link")) || "",
+  };
+  try {
+    await api("/projects/" + currentProject.id, { method: "PUT", body: JSON.stringify(body) });
+  } catch (err) {
+    return;
+  }
+  currentProject = await api("/projects/" + currentProject.id);
+  closeModal(); renderProjectDetail();
+}
+
 function closeProjectView() {
   document.getElementById("project-list").classList.remove("hidden");
   document.getElementById("project-detail").innerHTML = "";
@@ -554,6 +601,20 @@ function renderProjectDetail() {
   } else {
     meta.push(`<span>Asset: <a href="#" onclick="editAssetLink();return false" style="color:#1565c0;text-decoration:none">+ add link</a></span>`);
   }
+  const guideRows = [];
+  if (p.exported_location) guideRows.push(['Exported Location', p.exported_location]);
+  if (p.exported_format) guideRows.push(['Exported Format', p.exported_format]);
+  if (p.source_location) guideRows.push(['Source Location', p.source_location]);
+  if (p.source_format) guideRows.push(['Source Format', p.source_format]);
+  if (p.skin_list) guideRows.push(['Skin List', p.skin_list]);
+  if (p.resize_from_spine) guideRows.push(['Resize %', p.resize_from_spine]);
+  if (p.preview_link) guideRows.push(['Preview', p.preview_link]);
+  let guideHtml = '';
+  if (guideRows.length) {
+    guideHtml = `<div class="asset-guide-summary" style="margin-bottom:12px;font-size:12px;line-height:1.7;background:#f7f9fc;border:1px solid #e3e8f0;border-radius:6px;padding:8px 10px"><strong style="color:#1f4e79">Asset Guide</strong><div style="display:flex;flex-wrap:wrap;gap:6px 18px">${
+      guideRows.map(([l, v]) => { const s = String(v); return `<span><span style="color:#666">${esc(l)}:</span> ${s.length > 50 ? esc(s.substring(0, 50)) + '…' : esc(s)}</span>`; }).join('')
+    }</div><a href="#" onclick="showAssetGuideForm();return false" style="color:#1565c0;text-decoration:none">edit</a></div>`;
+  }
   const el = document.getElementById("project-detail");
   el.innerHTML = `
     <div class="page-header"><button class="back-btn" onclick="closeProjectView()">← Projects</button>
@@ -564,6 +625,8 @@ function renderProjectDetail() {
       <button onclick="exportProject('xlsx')" class="secondary">Export Excel</button>
       <button onclick="exportProject('csv')" class="secondary">Export CSV</button>
       <button onclick="exportProject('docx')" class="secondary">Export Word</button>
+      <button onclick="showAssetGuideForm()" class="secondary">Asset Guide</button>
+      <button onclick="exportProject('asset-guide')" class="secondary">Export Asset Guide</button>
       <button onclick="deleteCurrentProject()" class="danger">Delete</button></div>
     </div>
     ${meta.length ? '<div class="project-meta" style="margin-bottom:12px;font-size:13px;color:#555;display:flex;gap:12px;align-items:center;flex-wrap:wrap">' + meta.join('') + '</div>' : ''}
@@ -572,6 +635,7 @@ function renderProjectDetail() {
       ${currentProjectTags.map(t => `<span class="tag-badge" style="cursor:default">${esc(t.name)} <a href="#" onclick="deleteProjectTag(${t.id});return false" style="color:inherit;text-decoration:none">×</a></span>`).join('')}
       <button class="small" onclick="addProjectTag()">+</button>
     </div>
+    ${guideHtml}
     <div id="rollup-bar"></div>
     <div class="search-bar"><input type="text" id="entry-search" placeholder="Search entries by element, animation, artist, or description..." oninput="entrySearchTerm=this.value;renderEntries()" class="search-input"></div>
     <div id="entries-area"></div>`;
@@ -662,7 +726,7 @@ function renderEntries() {
     html += `<div class="element-section" data-element="${esc(element)}">
       <div class="element-header" onclick="toggleSection(this)">
         <span class="eh-toggle">▼</span>
-        <span>${esc(element)} (${done}/${entries.length} done)${flagged ? ' <span style="color:#ff9800"> ⚠ '+flagged+' flagged</span>' : ''}</span>
+        <span>${esc(element)} <span style="font-size:11px;color:#555;border:1px solid #b8c2d0;border-radius:10px;padding:0 6px;vertical-align:middle">${esc(elPrio)}</span> (${done}/${entries.length} done)${flagged ? ' <span style="color:#ff9800"> ⚠ '+flagged+' flagged</span>' : ''}</span>
         <div class="eh-actions"><span>${elProjected.toFixed(2)}h / ${elActual.toFixed(2)}h</span>
           <button onclick="showAddEntryForm('${esc(element)}');event.stopPropagation()">+ Animation</button>
           <button onclick="deleteElement('${esc(element)}');event.stopPropagation()">×</button></div>
@@ -738,6 +802,13 @@ function showAddEntryForm(prefillElement) {
   showModal(`
     <h3>Add Entry</h3>
     <form onsubmit="addEntry(event)">
+      <div class="form-group"><label>From Blueprint (optional)</label>
+        <select name="blueprint_id" onchange="blueprintPicked(this)">
+          <option value="">— None (manual entry) —</option>
+          ${blueprints.map(b => `<option value="${b.id}">${esc(b.name)} (${b.states.length} states)</option>`).join('')}
+        </select></div>
+      <div class="form-group" id="bp-state-row" style="display:none"><label>Animation (from blueprint)</label>
+        <select id="bp-state-pick" onchange="statePicked(this)"></select></div>
       <div class="form-group"><label>Element</label><input name="element_name" value="${esc(prefillElement || "")}" required></div>
       <div class="form-row">
         <div class="form-group"><label>Animation</label><input name="animation_name" placeholder="Idle, Win"></div>
@@ -764,11 +835,52 @@ function showAddEntryForm(prefillElement) {
   `);
 }
 
+function blueprintPicked(sel) {
+  const form = sel.closest('form');
+  const bp = blueprints.find(b => b.id === parseInt(sel.value || ''));
+  const stateRow = form.querySelector('#bp-state-row');
+  const statePick = form.querySelector('#bp-state-pick');
+  const elementInput = form.querySelector('input[name="element_name"]');
+  const animInput = form.querySelector('input[name="animation_name"]');
+  const loopBox = form.querySelector('input[name="looping"]');
+  const durInput = form.querySelector('input[name="duration"]');
+  const descArea = form.querySelector('textarea[name="description"]');
+  if (!bp) return;
+  if (elementInput) elementInput.value = bp.name;
+  if (statePick) {
+    statePick.innerHTML = "<option value=''>— select —</option>" +
+      bp.states.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join("");
+  }
+  if (stateRow) stateRow.style.display = bp.states.length ? "" : "none";
+  if (animInput) animInput.value = "";
+  if (durInput) durInput.value = "";
+  if (descArea) descArea.value = "";
+  if (loopBox) loopBox.checked = false;
+}
+
+function statePicked(sel) {
+  const form = sel.closest('form');
+  const bpSelect = form.querySelector('select[name="blueprint_id"]');
+  if (!bpSelect || !bpSelect.value) return;
+  const bp = blueprints.find(b => b.id === parseInt(bpSelect.value));
+  const st = bp && bp.states.find(s => s.name === sel.value);
+  if (!st) return;
+  const animInput = form.querySelector('input[name="animation_name"]');
+  const loopBox = form.querySelector('input[name="looping"]');
+  const durInput = form.querySelector('input[name="duration"]');
+  const descArea = form.querySelector('textarea[name="description"]');
+  if (animInput) animInput.value = st.name;
+  if (loopBox) loopBox.checked = !!st.default_looping;
+  if (durInput) durInput.value = st.default_duration || "";
+  if (descArea) descArea.value = st.default_description || "";
+}
+
 async function addEntry(e) {
   e.preventDefault();
   const fd = new FormData(e.target);
   await api("/entries", { method: "POST", body: JSON.stringify({
-    project_id: currentProject.id, element_name: fd.get("element_name"),
+    project_id: currentProject.id, blueprint_id: fd.get("blueprint_id") ? parseInt(fd.get("blueprint_id")) : null,
+    element_name: fd.get("element_name"),
     animation_name: fd.get("animation_name") || "", looping: fd.has("looping"),
     duration: fd.get("duration") || "", description: fd.get("description") || "",
     artist: fd.get("artist") || "",

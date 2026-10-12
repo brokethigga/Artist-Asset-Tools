@@ -144,6 +144,15 @@ function to_bool($v): bool
 }
 
 /**
+ * Normalizes a priority label. Anything outside Low/Medium/High falls back to
+ * the default Medium so element ordering by priority stays deterministic.
+ */
+function safe_priority(string $p): string
+{
+    return in_array($p, ['Low', 'Medium', 'High'], true) ? $p : 'Medium';
+}
+
+/**
  * Character count (UTF-8 aware). mbstring may be unavailable, so fall back
  * to iconv, then PCRE, then byte length.
  */

@@ -36,8 +36,9 @@ function handle_blueprints(string $method, array $seg): void
                 throw new ApiError('Blueprint name already exists', 400);
             }
             $desc = get_str($data, 'description');
-            $id = db_insert("INSERT INTO blueprints (organization_id, name, description, created_at) VALUES "
-                . "($orgId, " . db_quote($name) . ", " . db_quote($desc) . ", '" . now_iso() . "')");
+            $priority = safe_priority(get_str($data, 'priority', 'Medium'));
+            $id = db_insert("INSERT INTO blueprints (organization_id, name, description, priority, created_at) VALUES "
+                . "($orgId, " . db_quote($name) . ", " . db_quote($desc) . ", " . db_quote($priority) . ", '" . now_iso() . "')");
             foreach ((array)($data['states'] ?? []) as $s) {
                 insert_state($id, $s);
             }
@@ -67,6 +68,10 @@ function handle_blueprints(string $method, array $seg): void
                 $sets[] = "name = " . db_quote($name);
             }
             $sets[] = "description = " . db_quote($desc);
+            $priority = get_str($data, 'priority');
+            if ($priority !== '') {
+                $sets[] = "priority = " . db_quote(safe_priority($priority));
+            }
             if ($sets) {
                 db_exec("UPDATE blueprints SET " . implode(', ', $sets) . " WHERE id = $id");
             }
@@ -106,6 +111,7 @@ function blueprint_out(array $r): array
         'organization_id' => (int)$r['organization_id'],
         'name' => (string)$r['name'],
         'description' => (string)($r['description'] ?? ''),
+        'priority' => (string)($r['priority'] ?? 'Medium'),
         'archived' => to_bool($r['archived'] ?? 0),
         'created_at' => (string)$r['created_at'],
         'states' => array_map(function ($s) {
@@ -225,6 +231,21 @@ function template_out(array $r): array
 
 // ══════════════ PROJECTS ══════════════
 
+/**
+ * Ordinal rank for the high → low element ordering. High sorts before Medium,
+ * Medium before Low; anything unexpected is treated as Medium.
+ */
+function element_priority_rank(string $p): int
+{
+    if ($p === 'High') {
+        return 0;
+    }
+    if ($p === 'Low') {
+        return 2;
+    }
+    return 1;
+}
+
 function handle_projects(string $method, array $seg): void
 {
     $user = require_auth();
@@ -265,14 +286,25 @@ function handle_projects(string $method, array $seg): void
                 if ($tpl) {
                     $links = db_rows('SELECT * FROM template_blueprints WHERE template_id = ' . $templateId . ' ORDER BY sort_order');
                     foreach ($links as $l) {
-                        $bp = db_row('SELECT * FROM blueprints WHERE id = ' . (int)$l['blueprint_id']);
+                        // Archived blueprints are excluded from templates in the
+                        // UI, so they must not leak back into new projects either.
+                        $bp = db_row('SELECT * FROM blueprints WHERE id = ' . (int)$l['blueprint_id'] . ' AND archived = 0');
                         if (!$bp) {
                             continue;
                         }
                         $states = db_rows('SELECT * FROM blueprint_states WHERE blueprint_id = ' . (int)$bp['id'] . ' AND archived = 0 ORDER BY id');
+                        // A blueprint with no animation states still needs an
+                        // element row, or the element ("static symbols", "reel")
+                        // silently vanishes from the project.
+                        if (count($states) === 0) {
+                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours) VALUES ("
+                                . $pid . ", " . db_quote((string)$bp['name']) . ", '', " . (int)$bp['id'] . ", 0, '', "
+                                . db_quote((string)($bp['description'] ?? '')) . ", 0, 0)");
+                            continue;
+                        }
                         foreach ($states as $s) {
-                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, looping, duration, description, projected_hours, actual_hours) VALUES ("
-                                . $pid . ", " . db_quote((string)$bp['name']) . ", " . db_quote((string)$s['name']) . ", "
+                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours) VALUES ("
+                                . $pid . ", " . db_quote((string)$bp['name']) . ", " . db_quote((string)$s['name']) . ", " . (int)$bp['id'] . ", "
                                 . ((int)$s['default_looping'] ? 1 : 0) . ", " . db_quote((string)$s['default_duration']) . ", "
                                 . db_quote((string)$s['default_description']) . ", 0, 0)");
                         }
@@ -298,11 +330,11 @@ function handle_projects(string $method, array $seg): void
         }
         if ($method === 'PUT') {
             $data = json_body();
-            $allowed = ['name', 'status', 'game_type', 'customer', 'deadline', 'summary', 'asset_link'];
+            $allowed = ['name', 'status', 'game_type', 'customer', 'deadline', 'summary', 'asset_link', 'exported_location', 'exported_format', 'source_location', 'source_format', 'skin_list', 'resize_from_spine', 'preview_link'];
             // Columns declared NOT NULL in the schema. Writing NULL to these
             // raises a MySQL error, which is what made inline edits (such as
             // clearing the project name) fail to save.
-            $notNull = ['name', 'status', 'game_type', 'customer', 'asset_link'];
+            $notNull = ['name', 'status', 'game_type', 'customer', 'asset_link', 'exported_location', 'exported_format', 'source_location', 'source_format', 'resize_from_spine', 'preview_link'];
             $sets = [];
             foreach ($allowed as $field) {
                 if (!array_key_exists($field, $data)) {
@@ -340,7 +372,26 @@ function handle_projects(string $method, array $seg): void
     // /projects/{id}/entries
     if ($sub === 'entries' && count($seg) === 3 && $method === 'GET') {
         $archivedFilter = db_have_archived('entries') ? ' AND archived = 0' : '';
-        $rows = db_rows("SELECT * FROM entries WHERE project_id = $pid$archivedFilter ORDER BY element_name, id");
+        $rows = db_rows("SELECT * FROM entries WHERE project_id = $pid$archivedFilter");
+        // Element sections are ordered by their blueprint's priority
+        // (High → Medium → Low), then by element name, then by id. Entries
+        // without a blueprint sort as Medium, so manual entries mix in evenly.
+        $prioById = [];
+        foreach (db_rows('SELECT id, priority FROM blueprints WHERE organization_id = ' . $orgId) as $b) {
+            $prioById[(int)$b['id']] = (string)($b['priority'] ?? 'Medium');
+        }
+        usort($rows, function (array $a, array $b) use ($prioById): int {
+            $ra = element_priority_rank($prioById[(int)($a['blueprint_id'] ?? 0)] ?? 'Medium');
+            $rb = element_priority_rank($prioById[(int)($b['blueprint_id'] ?? 0)] ?? 'Medium');
+            if ($ra !== $rb) {
+                return $ra <=> $rb;
+            }
+            $cmp = strcmp((string)$a['element_name'], (string)$b['element_name']);
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            return (int)$a['id'] <=> (int)$b['id'];
+        });
         $out = [];
         foreach ($rows as $e) {
             $out[] = entry_out($e);
@@ -428,6 +479,13 @@ function project_out(array $r): array
         'deadline' => $r['deadline'] !== null && $r['deadline'] !== '' ? (string)$r['deadline'] : null,
         'summary' => $r['summary'] !== null ? (string)$r['summary'] : null,
         'asset_link' => $r['asset_link'] !== null ? (string)$r['asset_link'] : null,
+        'exported_location' => (string)($r['exported_location'] ?? ''),
+        'exported_format' => (string)($r['exported_format'] ?? ''),
+        'source_location' => (string)($r['source_location'] ?? ''),
+        'source_format' => (string)($r['source_format'] ?? ''),
+        'skin_list' => $r['skin_list'] !== null ? (string)$r['skin_list'] : null,
+        'resize_from_spine' => (string)($r['resize_from_spine'] ?? ''),
+        'preview_link' => (string)($r['preview_link'] ?? ''),
         'archived' => to_bool($r['archived'] ?? 0),
         'created_at' => (string)$r['created_at'],
     ];
@@ -523,8 +581,9 @@ function handle_entries(string $method, array $seg): void
         if (!$project) {
             throw new ApiError('Not found', 404);
         }
-        $eid = db_insert("INSERT INTO entries (project_id, element_name, animation_name, looping, duration, description, artist, projected_hours, actual_hours, priority, phase, status, asset_link) VALUES ("
-            . $projectId . ", " . db_quote(get_str($data, 'element_name')) . ", "
+        $bpId = (isset($data['blueprint_id']) && $data['blueprint_id'] !== '') ? (int)$data['blueprint_id'] : 'NULL';
+        $eid = db_insert("INSERT INTO entries (project_id, blueprint_id, element_name, animation_name, looping, duration, description, artist, projected_hours, actual_hours, priority, phase, status, asset_link) VALUES ("
+            . $projectId . ", " . $bpId . ", " . db_quote(get_str($data, 'element_name')) . ", "
             . db_quote(get_str($data, 'animation_name')) . ", " . (get_bool($data, 'looping', false) ? 1 : 0) . ", "
             . db_quote(get_str($data, 'duration')) . ", " . db_quote(get_str($data, 'description')) . ", "
             . db_quote(get_str($data, 'artist')) . ", " . get_float($data, 'projected_hours') . ", "
@@ -667,6 +726,7 @@ function entry_out(array $e): array
     return [
         'id' => (int)$e['id'],
         'project_id' => (int)$e['project_id'],
+        'blueprint_id' => $e['blueprint_id'] !== null ? (int)$e['blueprint_id'] : null,
         'element_name' => (string)$e['element_name'],
         'animation_name' => (string)($e['animation_name'] ?? ''),
         'archived' => to_bool($e['archived'] ?? 0),

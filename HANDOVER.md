@@ -290,7 +290,47 @@ alembic upgrade head
 
 ---
 
-## Current Status — Updated 2026-09-28
+## Current Status — Updated 2026-10-13
+
+### Phase Progress
+| Phase | Feature | Status |
+|-------|---------|--------|
+| 1–6 | Foundation, Auth, APIs, Hours, Images, Comments | ✅ Complete |
+| 7 | Exporter (Excel/CSV/PDF) | 🔄 XLSX/CSV done; Asset Guide docx added 2026-10-13 |
+| 8 | Database backups | ⏳ Not started |
+| 9 | Deployment | 🔄 In planning — see below |
+
+### What Happened This Session (2026-10-13)
+
+Four approved changes to the live app (`php-build/adam/`), all local + verified,
+**not yet uploaded**:
+
+1. **No-state blueprints now appear in projects.** Applying a template whose
+   blueprint has zero animation states inserts a placeholder row
+   (`animation_name = ''`) instead of silently dropping the element. A one-time
+   backfill (`app_meta.backfill_elements_v1`) repairs existing template-created
+   projects: it stamps `blueprint_id` on matching entries and adds the missing
+   placeholder rows. Runs automatically inside `bootstrap_db()`.
+2. **Add Entry can pull from Blueprints.** The Add Entry modal has a Blueprint
+   select + animation picker that prefills element/animation/looping/duration/
+   description; `POST /entries` stores `blueprint_id`.
+3. **Blueprint priority orders element sections.** New `blueprints.priority`
+   (High/Medium/Low, default Medium). The project view sorts elements by
+   priority rank → name. A badge shows each element's priority.
+4. **Asset Guide per project, with Word export.** New project fields
+   (`exported_location/format`, `source_location/format`, `skin_list`,
+   `resize_from_spine`, `preview_link`), an Asset Guide panel in the project
+   detail view, and **Export Asset Guide** producing `{name}_asset_guide.docx`.
+
+**Deploy:** upload `lib/db.php`, `lib/helpers.php`, `lib/handlers.php`,
+`lib/export.php` and `frontend/app.js` via FileZilla, then hard-refresh. Schema
+changes auto-apply on first request; confirm with `/adam/api/db-check`.
+
+**Verification:** `php -l` clean, `node --check` clean, and a 22-assertion
+end-to-end HTTP suite against a live `php -S` server on isolated temp SQLite
+(placeholder creation, backfill idempotency + stamping, priority ordering,
+Add-from-Blueprint, all 7 asset-guide fields, real `.docx` output). MySQL paths
+still unverified locally — `/adam/api/db-check` on the live host is the check.
 
 ### Phase Progress
 | Phase | Feature | Status |

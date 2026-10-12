@@ -265,6 +265,46 @@ function bootstrap_db($db, string $driver): void
     // Cache for db_have_archived() so request code can degrade gracefully.
     $GLOBALS['__archived_tables'] = $softDeleteReady;
 
+    // Columns introduced later than the original schema. Same guard pattern as
+    // `archived`: add when missing, log and carry on when a host blocks ALTER.
+    $extraColumns = [];
+    if ($driver === 'mysql') {
+        $extraColumns = [
+            'blueprints.priority' => "ALTER TABLE `blueprints` ADD COLUMN priority VARCHAR(50) NOT NULL DEFAULT 'Medium'",
+            'entries.blueprint_id' => 'ALTER TABLE `entries` ADD COLUMN blueprint_id INT NULL',
+            'projects.exported_location' => "ALTER TABLE `projects` ADD COLUMN exported_location VARCHAR(500) NOT NULL DEFAULT ''",
+            'projects.exported_format' => "ALTER TABLE `projects` ADD COLUMN exported_format VARCHAR(255) NOT NULL DEFAULT ''",
+            'projects.source_location' => "ALTER TABLE `projects` ADD COLUMN source_location VARCHAR(500) NOT NULL DEFAULT ''",
+            'projects.source_format' => "ALTER TABLE `projects` ADD COLUMN source_format VARCHAR(255) NOT NULL DEFAULT ''",
+            'projects.skin_list' => 'ALTER TABLE `projects` ADD COLUMN skin_list TEXT NULL',
+            'projects.resize_from_spine' => "ALTER TABLE `projects` ADD COLUMN resize_from_spine VARCHAR(50) NOT NULL DEFAULT ''",
+            'projects.preview_link' => "ALTER TABLE `projects` ADD COLUMN preview_link VARCHAR(500) NOT NULL DEFAULT ''",
+        ];
+    } else {
+        $extraColumns = [
+            'blueprints.priority' => "ALTER TABLE blueprints ADD COLUMN priority TEXT DEFAULT 'Medium'",
+            'entries.blueprint_id' => 'ALTER TABLE entries ADD COLUMN blueprint_id INTEGER',
+            'projects.exported_location' => "ALTER TABLE projects ADD COLUMN exported_location TEXT DEFAULT ''",
+            'projects.exported_format' => "ALTER TABLE projects ADD COLUMN exported_format TEXT DEFAULT ''",
+            'projects.source_location' => "ALTER TABLE projects ADD COLUMN source_location TEXT DEFAULT ''",
+            'projects.source_format' => "ALTER TABLE projects ADD COLUMN source_format TEXT DEFAULT ''",
+            'projects.skin_list' => 'ALTER TABLE projects ADD COLUMN skin_list TEXT',
+            'projects.resize_from_spine' => "ALTER TABLE projects ADD COLUMN resize_from_spine TEXT DEFAULT ''",
+            'projects.preview_link' => "ALTER TABLE projects ADD COLUMN preview_link TEXT DEFAULT ''",
+        ];
+    }
+    foreach ($extraColumns as $key => $sql) {
+        [$table, $col] = explode('.', $key, 2);
+        try {
+            if (!table_column_exists($table, $col)) {
+                db_exec($sql);
+                error_log("[bootstrap] added `$col` to `$table`");
+            }
+        } catch (Throwable $e) {
+            error_log('[bootstrap] could not add `' . $col . '` to `' . $table . '`: ' . $e->getMessage());
+        }
+    }
+
     // Seed organization
     $count = (int)db_scalar('SELECT COUNT(*) FROM organizations WHERE id = 1');
     if ($count === 0) {
@@ -280,6 +320,39 @@ function bootstrap_db($db, string $driver): void
     }
 
     seed_blueprints($db);
+
+    // ── Element backfill ──
+    //
+    // Blueprints with zero animation states used to be copied into a project
+    // as nothing, so the element silently vanished ("static symbols", "reel").
+    // Project creation now writes a placeholder entry; this one-time repair
+    // adds the placeholder to projects that were created before the fix. The
+    // app_meta row records that the repair has run so it never repeats.
+    if ($driver === 'mysql') {
+        $db->exec('CREATE TABLE IF NOT EXISTS app_meta (
+            k VARCHAR(64) PRIMARY KEY,
+            v TEXT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    } else {
+        $db->exec('CREATE TABLE IF NOT EXISTS app_meta (
+            k TEXT PRIMARY KEY,
+            v TEXT
+        )');
+    }
+    try {
+        $done = (int)db_scalar("SELECT COUNT(*) FROM app_meta WHERE k = 'backfill_elements_v1'");
+        if ($done === 0 && table_column_exists('entries', 'blueprint_id')) {
+            backfill_missing_elements();
+            $now = now_iso();
+            if ($driver === 'mysql') {
+                db_exec("INSERT IGNORE INTO app_meta (k, v) VALUES ('backfill_elements_v1', '$now')");
+            } else {
+                db_exec("INSERT OR IGNORE INTO app_meta (k, v) VALUES ('backfill_elements_v1', '$now')");
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[bootstrap] element backfill failed: ' . $e->getMessage());
+    }
 }
 
 function sqlite_schema(SQLite3 $db): void
@@ -308,6 +381,7 @@ function sqlite_schema(SQLite3 $db): void
         organization_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         description TEXT DEFAULT "",
+        priority TEXT DEFAULT "Medium",
         created_at TEXT
     )');
 
@@ -346,12 +420,20 @@ function sqlite_schema(SQLite3 $db): void
         deadline TEXT,
         summary TEXT,
         asset_link TEXT,
+        exported_location TEXT DEFAULT "",
+        exported_format TEXT DEFAULT "",
+        source_location TEXT DEFAULT "",
+        source_format TEXT DEFAULT "",
+        skin_list TEXT,
+        resize_from_spine TEXT DEFAULT "",
+        preview_link TEXT DEFAULT "",
         created_at TEXT
     )');
 
     $db->exec('CREATE TABLE IF NOT EXISTS entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id INTEGER NOT NULL,
+        blueprint_id INTEGER,
         element_name TEXT NOT NULL,
         animation_name TEXT DEFAULT "",
         archived INTEGER NOT NULL DEFAULT 0,
@@ -444,6 +526,7 @@ function mysql_schema($db): void
         organization_id INT NOT NULL DEFAULT 1,
         name VARCHAR(255) NOT NULL,
         description TEXT NULL,
+        priority VARCHAR(50) NOT NULL DEFAULT "Medium",
         created_at VARCHAR(32) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
@@ -482,12 +565,20 @@ function mysql_schema($db): void
         deadline VARCHAR(32) NULL,
         summary TEXT NULL,
         asset_link VARCHAR(500) NOT NULL DEFAULT "",
+        exported_location VARCHAR(500) NOT NULL DEFAULT "",
+        exported_format VARCHAR(255) NOT NULL DEFAULT "",
+        source_location VARCHAR(500) NOT NULL DEFAULT "",
+        source_format VARCHAR(255) NOT NULL DEFAULT "",
+        skin_list TEXT NULL,
+        resize_from_spine VARCHAR(50) NOT NULL DEFAULT "",
+        preview_link VARCHAR(500) NOT NULL DEFAULT "",
         created_at VARCHAR(32) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
     $db->exec('CREATE TABLE IF NOT EXISTS entries (
         id INT AUTO_INCREMENT PRIMARY KEY,
         project_id INT NOT NULL,
+        blueprint_id INT NULL,
         element_name VARCHAR(255) NOT NULL,
         animation_name VARCHAR(255) NOT NULL DEFAULT "",
         archived TINYINT NOT NULL DEFAULT 0,
@@ -617,6 +708,54 @@ function seed_blueprints($db): void
 }
 
 // ── Diagnostics & migration ──
+
+/**
+ * One-time repair for projects created before the "no animation states" fix.
+ * For every project created from a template it:
+ *  - stamps entries.blueprint_id onto existing rows whose element matches a
+ *    template blueprint by name, and
+ *  - inserts a placeholder entry (empty animation_name) for each template
+ *    blueprint that has no entry rows at all, so the element is not lost.
+ * It never runs twice: bootstrap_db records a marker in app_meta once done.
+ */
+function backfill_missing_elements(): void
+{
+    $projects = db_rows("SELECT id, template_id FROM projects WHERE template_id IS NOT NULL AND archived = 0");
+    foreach ($projects as $p) {
+        $pid = (int)$p['id'];
+        $bpRows = db_rows(
+            'SELECT b.id, b.name, b.description FROM template_blueprints tb'
+            . ' JOIN blueprints b ON b.id = tb.blueprint_id'
+            . ' WHERE tb.template_id = ' . (int)$p['template_id'] . ' AND b.archived = 0'
+            . ' ORDER BY tb.sort_order'
+        );
+        foreach ($bpRows as $bp) {
+            $elem = (string)$bp['name'];
+            $stamped = (int)db_scalar(
+                'SELECT COUNT(*) FROM entries WHERE project_id = ' . $pid
+                . ' AND element_name = ' . db_quote($elem) . ' AND blueprint_id IS NULL'
+            );
+            if ($stamped > 0) {
+                db_exec(
+                    'UPDATE entries SET blueprint_id = ' . (int)$bp['id']
+                    . ' WHERE project_id = ' . $pid . ' AND element_name = ' . db_quote($elem)
+                    . ' AND blueprint_id IS NULL'
+                );
+            }
+            $missing = (int)db_scalar(
+                'SELECT COUNT(*) FROM entries WHERE project_id = ' . $pid
+                . ' AND element_name = ' . db_quote($elem) . ' AND archived = 0'
+            );
+            if ($missing === 0) {
+                db_exec(
+                    'INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours) VALUES ('
+                    . $pid . ', ' . db_quote($elem) . ", '', " . (int)$bp['id'] . ', 0, ' . db_quote('')
+                    . ', ' . db_quote((string)($bp['description'] ?? '')) . ', 0, 0)'
+                );
+            }
+        }
+    }
+}
 
 function db_connection_report(): array
 {

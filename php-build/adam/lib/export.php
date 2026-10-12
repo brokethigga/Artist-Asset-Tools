@@ -28,6 +28,9 @@ function handle_export(int $pid, string $format): void
         case 'docx':
             export_docx($project, $entries, $safeName);
             break;
+        case 'asset-guide':
+            export_asset_guide_docx($project, $entries, $safeName);
+            break;
         case 'xlsx':
         default:
             export_xlsx($project, $entries, $safeName);
@@ -533,6 +536,90 @@ function export_docx(array $project, array $entries, string $safeName): void
     $data = build_zip($files);
     header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     header('Content-Disposition: attachment; filename="' . $safeName . '_choreography.docx"');
+    header('Content-Length: ' . strlen($data));
+    echo $data;
+    exit;
+}
+// ══════════════ ASSET GUIDE DOCX ══════════════
+
+function export_asset_guide_docx(array $project, array $entries, string $safeName): void
+{
+    $body = '';
+    $body .= '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>' . esc_xml($project['name']) . '</w:t></w:r></w:p>';
+    $body .= '<w:p><w:r><w:t>Asset Guide</w:t></w:r></w:p>';
+    $body .= '<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Delivered asset details</w:t></w:r></w:p>';
+
+    $fields = [
+        'Exported Location' => (string)($project['exported_location'] ?? ''),
+        'Exported Format' => (string)($project['exported_format'] ?? ''),
+        'Source File Location' => (string)($project['source_location'] ?? ''),
+        'Source File Format' => (string)($project['source_format'] ?? ''),
+        'Skin List' => (string)($project['skin_list'] ?? ''),
+        'Resize (%) from Spine' => (string)($project['resize_from_spine'] ?? ''),
+        'Preview' => (string)($project['preview_link'] ?? ''),
+    ];
+
+    $body .= '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="9360" w:type="dxa"/>'
+        . '<w:tblGrid><w:gridCol w:w="3200"/><w:gridCol w:w="6160"/></w:tblGrid></w:tblPr>';
+    foreach ($fields as $label => $value) {
+        $body .= '<w:tr><w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="EDEDED"/></w:tcPr>'
+            . '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>' . esc_xml($label) . '</w:t></w:r></w:p></w:tc>';
+        if ($label === 'Skin List' || $label === 'Preview') {
+            $body .= '<w:tc><w:p>' . xml_runs_with_breaks($value) . '</w:p></w:tc>';
+        } else {
+            $body .= '<w:tc><w:p><w:r><w:t>' . esc_xml($value) . '</w:t></w:r></w:p></w:tc>';
+        }
+        $body .= '</w:tr>';
+    }
+    $body .= '</w:tbl><w:p/>';
+
+    $elements = [];
+    foreach ($entries as $e) {
+        $elements[(string)$e['element_name']][] = $e;
+    }
+    $body .= '<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Elements</w:t></w:r></w:p>';
+    foreach ($elements as $elementName => $elemEntries) {
+        $body .= '<w:p><w:pPr><w:pStyle w:val="Heading3"/></w:pPr><w:r><w:t>' . esc_xml($elementName) . '</w:t></w:r></w:p>';
+        foreach ($elemEntries as $entry) {
+            $line = (string)($entry['animation_name'] ?: '(unnamed)');
+            if (!empty($entry['description'])) {
+                $line .= ' — ' . (string)$entry['description'];
+            }
+            $body .= '<w:p><w:r><w:t>' . esc_xml($line) . '</w:t></w:r></w:p>';
+        }
+    }
+
+    $documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        . '<w:body>' . $body
+        . '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>'
+        . '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
+        . '</w:sectPr></w:body></w:document>';
+
+    $docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        . '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        . '</Relationships>';
+
+    $contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        . '<Default Extension="xml" ContentType="application/xml"/>'
+        . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        . '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+        . '</Types>';
+
+    $files = [
+        '[Content_Types].xml' => $contentTypes,
+        '_rels/.rels' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+        'word/_rels/document.xml.rels' => $docRels,
+        'word/document.xml' => $documentXml,
+        'word/styles.xml' => docx_styles(),
+    ];
+
+    $data = build_zip($files);
+    header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    header('Content-Disposition: attachment; filename="' . $safeName . '_asset_guide.docx"');
     header('Content-Length: ' . strlen($data));
     echo $data;
     exit;
