@@ -21,9 +21,12 @@ async function api(path, opts = {}) {
     throw err;
   }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    if (path !== '/auth/me') alert(err.detail || "Request failed");
-    throw err;
+    const text = await res.text().catch(() => "");
+    let err = {};
+    try { err = text ? JSON.parse(text) : {}; } catch (e) { err = {}; }
+    const detail = err.detail || `Request failed (HTTP ${res.status})`;
+    if (path !== '/auth/me') alert(detail);
+    throw { detail, status: res.status };
   }
   return res.status === 204 ? null : res.json();
 }
@@ -825,24 +828,23 @@ function showAddEntryForm(prefillElement) {
           <option value="">— None (manual entry) —</option>
           ${blueprints.map(b => `<option value="${b.id}">${esc(b.name)} (${b.states.length} states)</option>`).join('')}
         </select></div>
-      <div class="form-group" id="bp-state-row" style="display:none"><label>Animation (from blueprint)</label>
-        <select id="bp-state-pick" onchange="statePicked(this)"></select></div>
+      <div class="form-group" id="bp-import-note" style="display:none"></div>
       <div class="form-group"><label>Element</label><input name="element_name" value="${esc(prefillElement || "")}" required></div>
-      <div class="form-row">
+      <div class="form-row manual-field">
         <div class="form-group"><label>Animation</label><input name="animation_name" placeholder="Idle, Win"></div>
         <div class="form-group"><label>Type</label>
           <select name="phase">${TYPES.map(p => `<option value="${p}">${p}</option>`).join('')}</select></div>
       </div>
-      <div class="form-row">
+      <div class="form-row manual-field">
         <div class="form-group"><label>Duration</label><input name="duration" placeholder="5-10 sec"></div>
         <div class="form-group"><label>Artist</label><input name="artist"></div>
       </div>
-      <div class="form-group"><label>Description</label><textarea name="description"></textarea></div>
-      <div class="form-row">
+      <div class="form-group manual-field"><label>Description</label><textarea name="description"></textarea></div>
+      <div class="form-row manual-field">
         <div class="form-group"><label>Projected Hours</label><input name="projected_hours" type="number" step="0.25" value="0"></div>
         <div class="form-group"><label>Actual Hours</label><input name="actual_hours" type="number" step="0.25" value="0"></div>
       </div>
-      <div class="form-row">
+      <div class="form-row manual-field">
         <div class="form-group"><label>Priority</label>
           <select name="priority">${PRIORITIES.map(p => `<option value="${p}" ${p==='Medium'?'selected':''}>${p}</option>`).join('')}</select>
         </div>
@@ -856,59 +858,51 @@ function showAddEntryForm(prefillElement) {
 function blueprintPicked(sel) {
   const form = sel.closest('form');
   const bp = blueprints.find(b => b.id === parseInt(sel.value || ''));
-  const stateRow = form.querySelector('#bp-state-row');
-  const statePick = form.querySelector('#bp-state-pick');
+  const note = form.querySelector('#bp-import-note');
   const elementInput = form.querySelector('input[name="element_name"]');
-  const animInput = form.querySelector('input[name="animation_name"]');
-  const loopBox = form.querySelector('input[name="looping"]');
-  const durInput = form.querySelector('input[name="duration"]');
-  const descArea = form.querySelector('textarea[name="description"]');
   const phaseSel = form.querySelector('select[name="phase"]');
-  if (!bp) return;
+  // Blueprint mode imports every state, so the manual per-entry fields do not
+  // apply and are hidden until the blueprint selection is cleared again.
+  form.querySelectorAll('.manual-field').forEach(el => { el.style.display = bp ? 'none' : ''; });
+  if (!bp) {
+    if (note) note.style.display = 'none';
+    return;
+  }
   if (elementInput) elementInput.value = bp.name;
   if (phaseSel) phaseSel.value = bp.phase || 'Art';
-  if (statePick) {
-    statePick.innerHTML = "<option value=''>— select —</option>" +
-      bp.states.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join("");
+  if (note) {
+    note.style.display = '';
+    const names = bp.states.map(s => esc(s.name)).join(', ');
+    note.innerHTML = bp.states.length
+      ? `<label>Will add ${bp.states.length} entr${bp.states.length === 1 ? 'y' : 'ies'}</label><div class="bp-states-list">${names}</div>`
+      : `<label>Will add 1 entry</label><div class="bp-states-list">No animation states — a single placeholder row will be added.</div>`;
   }
-  if (stateRow) stateRow.style.display = bp.states.length ? "" : "none";
-  if (animInput) animInput.value = "";
-  if (durInput) durInput.value = "";
-  if (descArea) descArea.value = "";
-  if (loopBox) loopBox.checked = false;
-}
-
-function statePicked(sel) {
-  const form = sel.closest('form');
-  const bpSelect = form.querySelector('select[name="blueprint_id"]');
-  if (!bpSelect || !bpSelect.value) return;
-  const bp = blueprints.find(b => b.id === parseInt(bpSelect.value));
-  const st = bp && bp.states.find(s => s.name === sel.value);
-  if (!st) return;
-  const animInput = form.querySelector('input[name="animation_name"]');
-  const loopBox = form.querySelector('input[name="looping"]');
-  const durInput = form.querySelector('input[name="duration"]');
-  const descArea = form.querySelector('textarea[name="description"]');
-  if (animInput) animInput.value = st.name;
-  if (loopBox) loopBox.checked = !!st.default_looping;
-  if (durInput) durInput.value = st.default_duration || "";
-  if (descArea) descArea.value = st.default_description || "";
 }
 
 async function addEntry(e) {
   e.preventDefault();
   const fd = new FormData(e.target);
-  await api("/entries", { method: "POST", body: JSON.stringify({
-    project_id: currentProject.id, blueprint_id: fd.get("blueprint_id") ? parseInt(fd.get("blueprint_id")) : null,
-    element_name: fd.get("element_name"),
-    animation_name: fd.get("animation_name") || "", looping: fd.has("looping"),
-    duration: fd.get("duration") || "", description: fd.get("description") || "",
-    artist: fd.get("artist") || "",
-    projected_hours: parseFloat(fd.get("projected_hours")) || 0,
-    actual_hours: parseFloat(fd.get("actual_hours")) || 0,
-    priority: fd.get("priority") || "Medium",
-    phase: fd.get("phase") || null,
-  })});
+  const bpRaw = fd.get("blueprint_id");
+  if (bpRaw) {
+    // Import all of the blueprint's animation states at once.
+    await api("/entries", { method: "POST", body: JSON.stringify({
+      project_id: currentProject.id,
+      blueprint_id: parseInt(bpRaw),
+      import_states: true,
+    })});
+  } else {
+    await api("/entries", { method: "POST", body: JSON.stringify({
+      project_id: currentProject.id, blueprint_id: null,
+      element_name: fd.get("element_name"),
+      animation_name: fd.get("animation_name") || "", looping: fd.has("looping"),
+      duration: fd.get("duration") || "", description: fd.get("description") || "",
+      artist: fd.get("artist") || "",
+      projected_hours: parseFloat(fd.get("projected_hours")) || 0,
+      actual_hours: parseFloat(fd.get("actual_hours")) || 0,
+      priority: fd.get("priority") || "Medium",
+      phase: fd.get("phase") || null,
+    })});
+  }
   closeModal(); refreshProjectView();
 }
 

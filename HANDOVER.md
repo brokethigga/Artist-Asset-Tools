@@ -335,19 +335,26 @@ Four approved changes to the live app (`php-build/adam/`), all local + verified,
    items must be archived first (400 otherwise). Projects cascade to entries,
    uploads, tags and comments. Requires the MySQL `DELETE` grant on the host.
 
+8. **Add-from-Blueprint imports all states.** Selecting a blueprint in *Add
+   Entry* now creates one entry per animation state (same shared
+   `import_blueprint_into_project()` used by template apply); a stateless
+   blueprint still yields one placeholder. The manual (no-blueprint) form is
+   unchanged.
+
 **Deploy:** upload `lib/db.php`, `lib/helpers.php`, `lib/handlers.php`,
 `lib/export.php`, `lib/auth.php`, `frontend/app.js` **and `frontend/style.css`**
 via FileZilla, then hard-refresh. Schema changes auto-apply on first request;
 confirm with `/adam/api/db-check`.
 
-**Verification:** `php -l` clean, `node --check` clean, and a 36-assertion
+**Verification:** `php -l` clean, `node --check` clean, and a 40-assertion
 end-to-end HTTP suite against a live `php -S` server on isolated temp SQLite
 (placeholder creation, backfill idempotency + stamping, priority ordering,
-Add-from-Blueprint, all 7 asset-guide fields, real `.docx` output, blueprint
-type inheritance, `Drawing→Art` normalization, owner-only permanent delete:
-400 for live items, 403 for non-owners, cascade on projects), plus a Node VM
-smoke test that `renderEntries()` actually draws element sections. MySQL paths
-still unverified locally — `/adam/api/db-check` on the live host is the check.
+Add-from-Blueprint single + import-all-states, all 7 asset-guide fields, real
+`.docx` output, blueprint type inheritance, `Drawing→Art` normalization,
+owner-only permanent delete: 400 for live items, 403 for non-owners, cascade on
+projects), plus a Node VM smoke test that `renderEntries()` actually draws
+element sections. MySQL paths still unverified locally — `/adam/api/db-check`
+on the live host is the check.
 
 ### Known bug fixed (same day)
 "Project looks empty even though it has elements" was `renderEntries()`

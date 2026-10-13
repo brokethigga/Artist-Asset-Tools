@@ -6,6 +6,37 @@ Track all changes, decisions, and progress here.
 
 ---
 
+## 2026-10-14 — Add-from-Blueprint imports all states + safer template apply
+
+**Target: `php-build/adam/` (live app). Auto-migrates on first request.**
+
+### 1. "Add from Blueprint" now imports every animation state
+- Previously you had to pick a single state. Now selecting a blueprint and
+  adding creates **one entry per state** — identical to applying a template.
+- Backend: new shared `import_blueprint_into_project()` in `handlers.php`, used
+  by both `POST /projects` (template apply) and the new
+  `POST /entries {import_states: true}` path. A blueprint with no states still
+  yields one placeholder row. Returns `{created: [...]}` (201).
+- Frontend: `Add Entry` hides the manual fields when a blueprint is chosen and
+  shows exactly which states will be added (`#bp-import-note`); manual entry
+  (no blueprint) is unchanged. `.manual-field` toggles them.
+
+### 2. Hardened template application / diagnostics
+- Template apply and blueprint import share one code path, so a fix/behaviour
+  change lands in both.
+- Defensive migrations added for `entries.phase`, `entries.priority` (both
+  drivers) so a DB that predates those columns self-repairs on bootstrap.
+- `api()` (frontend) now reads the raw response body and, when the server
+  returns a non-JSON/blank error, shows `Request failed (HTTP <status>)`
+  instead of an opaque "Request failed". Real server messages still show as-is.
+
+### Verification
+- Harness now **40 assertions, all pass**, including 4 new ones: import_states
+  creates one row per state (`Idle,Throw`), inherits the blueprint type, and
+  keeps `blueprint_id`.
+
+---
+
 ## 2026-10-13 — PHP app: keep element rows, blueprints priority, asset guide
 
 **Target: `php-build/adam/` (live app, deployed via FileZilla). Four approved

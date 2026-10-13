@@ -321,24 +321,7 @@ function handle_projects(string $method, array $seg): void
                         if (!$bp) {
                             continue;
                         }
-                        $states = db_rows('SELECT * FROM blueprint_states WHERE blueprint_id = ' . (int)$bp['id'] . ' AND archived = 0 ORDER BY id');
-                        // A blueprint with no animation states still needs an
-                        // element row, or the element ("static symbols", "reel")
-                        // silently vanishes from the project.
-                        if (count($states) === 0) {
-                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours, phase) VALUES ("
-                                . $pid . ", " . db_quote((string)$bp['name']) . ", '', " . (int)$bp['id'] . ", 0, '', "
-                                . db_quote((string)($bp['description'] ?? '')) . ", 0, 0, "
-                                . db_quote((string)($bp['phase'] ?? 'Art')) . ")");
-                            continue;
-                        }
-                        foreach ($states as $s) {
-                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours, phase) VALUES ("
-                                . $pid . ", " . db_quote((string)$bp['name']) . ", " . db_quote((string)$s['name']) . ", " . (int)$bp['id'] . ", "
-                                . ((int)$s['default_looping'] ? 1 : 0) . ", " . db_quote((string)$s['default_duration']) . ", "
-                                . db_quote((string)$s['default_description']) . ", 0, 0, "
-                                . db_quote((string)($bp['phase'] ?? 'Art')) . ")");
-                        }
+                        import_blueprint_into_project($pid, $bp);
                     }
                 }
             }
@@ -620,6 +603,34 @@ function comment_out(array $c): array
 
 // ══════════════ ENTRIES ══════════════
 
+/**
+ * Inserts one entry per animation state of a blueprint into a project — the
+ * same behaviour used when creating a project from a template. A blueprint with
+ * no states still yields a single placeholder row (empty animation_name) so the
+ * element never silently disappears. Returns the ids of the created entries.
+ */
+function import_blueprint_into_project(int $projectId, array $bp): array
+{
+    $bpId = (int)$bp['id'];
+    $phase = safe_phase((string)($bp['phase'] ?? 'Art'));
+    $states = db_rows('SELECT * FROM blueprint_states WHERE blueprint_id = ' . $bpId . ' AND archived = 0 ORDER BY id');
+
+    if (count($states) === 0) {
+        return [db_insert("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours, phase) VALUES ("
+            . $projectId . ", " . db_quote((string)$bp['name']) . ", '', " . $bpId . ", 0, '', "
+            . db_quote((string)($bp['description'] ?? '')) . ", 0, 0, " . db_quote($phase) . ")")];
+    }
+
+    $ids = [];
+    foreach ($states as $s) {
+        $ids[] = db_insert("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours, phase) VALUES ("
+            . $projectId . ", " . db_quote((string)$bp['name']) . ", " . db_quote((string)$s['name']) . ", " . $bpId . ", "
+            . ((int)$s['default_looping'] ? 1 : 0) . ", " . db_quote((string)$s['default_duration']) . ", "
+            . db_quote((string)$s['default_description']) . ", 0, 0, " . db_quote($phase) . ")");
+    }
+    return $ids;
+}
+
 function handle_entries(string $method, array $seg): void
 {
     $user = require_auth();
@@ -632,6 +643,23 @@ function handle_entries(string $method, array $seg): void
         if (!$project) {
             throw new ApiError('Not found', 404);
         }
+
+        // "Add from Blueprint": import every animation state in one go, exactly
+        // like applying a template does. A blueprint with no states still yields
+        // one placeholder row so the element is not lost.
+        if (!empty($data['import_states']) && isset($data['blueprint_id']) && $data['blueprint_id'] !== '') {
+            $bp = db_row('SELECT * FROM blueprints WHERE id = ' . (int)$data['blueprint_id']
+                . ' AND organization_id = ' . (int)$user['organization_id'] . ' AND archived = 0');
+            if (!$bp) {
+                throw new ApiError('Blueprint not found', 404);
+            }
+            $entries = [];
+            foreach (import_blueprint_into_project($projectId, $bp) as $id) {
+                $entries[] = entry_out(db_row('SELECT * FROM entries WHERE id = ' . $id));
+            }
+            json_out(['created' => $entries], 201);
+        }
+
         $bpId = (isset($data['blueprint_id']) && $data['blueprint_id'] !== '') ? (int)$data['blueprint_id'] : 'NULL';
         $eid = db_insert("INSERT INTO entries (project_id, blueprint_id, element_name, animation_name, looping, duration, description, artist, projected_hours, actual_hours, priority, phase, status, asset_link) VALUES ("
             . $projectId . ", " . $bpId . ", " . db_quote(get_str($data, 'element_name')) . ", "
