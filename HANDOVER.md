@@ -340,13 +340,20 @@ Four approved changes to the live app (`php-build/adam/`), all local + verified,
 via FileZilla, then hard-refresh. Schema changes auto-apply on first request;
 confirm with `/adam/api/db-check`.
 
-**Verification:** `php -l` clean, `node --check` clean, and a 35-assertion
+**Verification:** `php -l` clean, `node --check` clean, and a 36-assertion
 end-to-end HTTP suite against a live `php -S` server on isolated temp SQLite
 (placeholder creation, backfill idempotency + stamping, priority ordering,
 Add-from-Blueprint, all 7 asset-guide fields, real `.docx` output, blueprint
 type inheritance, `Drawing→Art` normalization, owner-only permanent delete:
-400 for live items, 403 for non-owners, cascade on projects). MySQL paths still
-unverified locally — `/adam/api/db-check` on the live host is the check.
+400 for live items, 403 for non-owners, cascade on projects), plus a Node VM
+smoke test that `renderEntries()` actually draws element sections. MySQL paths
+still unverified locally — `/adam/api/db-check` on the live host is the check.
+
+### Known bug fixed (same day)
+"Project looks empty even though it has elements" was `renderEntries()`
+crashing on an undefined `elPrio` (priority badge) — every project detail threw
+a ReferenceError before drawing the entries area. Fixed in `app.js`; guarded by
+the `rendercheck.js` regression test.
 
 ### Phase Progress
 | Phase | Feature | Status |

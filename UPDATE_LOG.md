@@ -142,11 +142,21 @@ same upload as the two rounds above.**
 ### Verification
 - `php -l` clean on `auth.php`, `handlers.php`; `node --check` clean on
   `app.js`.
-- Harness now **35 assertions, all pass**: 400 on permanent-delete of an active
+- Harness now **36 assertions, all pass**: 400 on permanent-delete of an active
   blueprint; owner deletes archived blueprint/template/project (project cascade
   verified — it 404s afterwards); a second non-owner user gets **403** and the
   archive survives.
 - **Not verified:** MySQL paths (no local MySQL). `/api/db-check` after upload.
+
+### Bugfix (same day): "project looks empty even though it has entries"
+- `renderEntries()` referenced `elPrio` (priority badge in the element header)
+  without ever defining it → every project detail threw
+  `ReferenceError: elPrio is not defined` and the entries area never drew.
+- Fixed in `frontend/app.js` by deriving the badge from the first entry's
+  priority (`elPrio = (entries.find(e => e.priority) || {}).priority || 'Medium'`).
+- Regression guard added to the harness: `rendercheck.js` loads the real app.js
+  in a Node VM sandbox, calls `renderEntries()` with sample data and asserts the
+  element sections actually render.
 
 ---
 

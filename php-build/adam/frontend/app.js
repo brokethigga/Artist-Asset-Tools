@@ -731,6 +731,7 @@ function renderEntries() {
     const elActual = entries.reduce((s, e) => s + (e.actual_hours || 0), 0);
     const done = entries.filter(e => e.status === 'Done').length;
     const flagged = entries.filter(e => e.alert_flag).length;
+    const elPrio = (entries.find(e => e.priority) || {}).priority || 'Medium';
 
     // Group entries by animation_name (state)
     const byState = {};
