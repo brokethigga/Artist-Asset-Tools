@@ -321,16 +321,25 @@ Four approved changes to the live app (`php-build/adam/`), all local + verified,
    (`exported_location/format`, `source_location/format`, `skin_list`,
    `resize_from_spine`, `preview_link`), an Asset Guide panel in the project
    detail view, and **Export Asset Guide** producing `{name}_asset_guide.docx`.
+5. **Entry type renamed "Drawing" → "Art".** The Type dropdown/summary now says
+   `Animating`/`Art`; stored `phase='Drawing'` is migrated once to `'Art'`, and
+   `safe_phase()` normalizes any legacy value at the API boundary.
+6. **Blueprints define a Type.** New `blueprints.phase` (default `Art`), set in
+   the blueprint form and shown on its card. Add-from-Blueprint prefills the
+   entry's Type from the blueprint; template apply and the backfill stamp the
+   blueprint's type onto created entries/placeholders.
 
 **Deploy:** upload `lib/db.php`, `lib/helpers.php`, `lib/handlers.php`,
-`lib/export.php` and `frontend/app.js` via FileZilla, then hard-refresh. Schema
-changes auto-apply on first request; confirm with `/adam/api/db-check`.
+`lib/export.php`, `frontend/app.js` **and `frontend/style.css`** via FileZilla,
+then hard-refresh. Schema changes auto-apply on first request; confirm with
+`/adam/api/db-check`.
 
-**Verification:** `php -l` clean, `node --check` clean, and a 22-assertion
+**Verification:** `php -l` clean, `node --check` clean, and a 28-assertion
 end-to-end HTTP suite against a live `php -S` server on isolated temp SQLite
 (placeholder creation, backfill idempotency + stamping, priority ordering,
-Add-from-Blueprint, all 7 asset-guide fields, real `.docx` output). MySQL paths
-still unverified locally — `/adam/api/db-check` on the live host is the check.
+Add-from-Blueprint, all 7 asset-guide fields, real `.docx` output, blueprint
+type inheritance, `Drawing→Art` normalization). MySQL paths still unverified
+locally — `/adam/api/db-check` on the live host is the check.
 
 ### Phase Progress
 | Phase | Feature | Status |

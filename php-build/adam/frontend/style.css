@@ -187,7 +187,7 @@ button.small.danger { background: #ffcdd2; color: #c62828; }
 select.status-select { font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 4px; border: 1px solid #ddd; background: #fff; width: 100%; }
 .status-None { color: #999; }
 .status-Not-Started { color: #999; }
-.status-Drawing { color: #1565c0; }
+.status-Art { color: #1565c0; }
 .status-Animating { color: #e65100; }
 .status-Review { color: #827717; }
 .status-Done { color: #2e7d32; }

@@ -37,8 +37,9 @@ function handle_blueprints(string $method, array $seg): void
             }
             $desc = get_str($data, 'description');
             $priority = safe_priority(get_str($data, 'priority', 'Medium'));
-            $id = db_insert("INSERT INTO blueprints (organization_id, name, description, priority, created_at) VALUES "
-                . "($orgId, " . db_quote($name) . ", " . db_quote($desc) . ", " . db_quote($priority) . ", '" . now_iso() . "')");
+            $phase = safe_phase(get_str($data, 'phase', 'Art'));
+            $id = db_insert("INSERT INTO blueprints (organization_id, name, description, priority, phase, created_at) VALUES "
+                . "($orgId, " . db_quote($name) . ", " . db_quote($desc) . ", " . db_quote($priority) . ", " . db_quote($phase) . ", '" . now_iso() . "')");
             foreach ((array)($data['states'] ?? []) as $s) {
                 insert_state($id, $s);
             }
@@ -71,6 +72,10 @@ function handle_blueprints(string $method, array $seg): void
             $priority = get_str($data, 'priority');
             if ($priority !== '') {
                 $sets[] = "priority = " . db_quote(safe_priority($priority));
+            }
+            $phase = get_str($data, 'phase');
+            if ($phase !== '') {
+                $sets[] = "phase = " . db_quote(safe_phase($phase));
             }
             if ($sets) {
                 db_exec("UPDATE blueprints SET " . implode(', ', $sets) . " WHERE id = $id");
@@ -112,6 +117,7 @@ function blueprint_out(array $r): array
         'name' => (string)$r['name'],
         'description' => (string)($r['description'] ?? ''),
         'priority' => (string)($r['priority'] ?? 'Medium'),
+        'phase' => (string)($r['phase'] ?? 'Art'),
         'archived' => to_bool($r['archived'] ?? 0),
         'created_at' => (string)$r['created_at'],
         'states' => array_map(function ($s) {
@@ -297,16 +303,18 @@ function handle_projects(string $method, array $seg): void
                         // element row, or the element ("static symbols", "reel")
                         // silently vanishes from the project.
                         if (count($states) === 0) {
-                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours) VALUES ("
+                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours, phase) VALUES ("
                                 . $pid . ", " . db_quote((string)$bp['name']) . ", '', " . (int)$bp['id'] . ", 0, '', "
-                                . db_quote((string)($bp['description'] ?? '')) . ", 0, 0)");
+                                . db_quote((string)($bp['description'] ?? '')) . ", 0, 0, "
+                                . db_quote((string)($bp['phase'] ?? 'Art')) . ")");
                             continue;
                         }
                         foreach ($states as $s) {
-                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours) VALUES ("
+                            db_exec("INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours, phase) VALUES ("
                                 . $pid . ", " . db_quote((string)$bp['name']) . ", " . db_quote((string)$s['name']) . ", " . (int)$bp['id'] . ", "
                                 . ((int)$s['default_looping'] ? 1 : 0) . ", " . db_quote((string)$s['default_duration']) . ", "
-                                . db_quote((string)$s['default_description']) . ", 0, 0)");
+                                . db_quote((string)$s['default_description']) . ", 0, 0, "
+                                . db_quote((string)($bp['phase'] ?? 'Art')) . ")");
                         }
                     }
                 }
@@ -588,7 +596,7 @@ function handle_entries(string $method, array $seg): void
             . db_quote(get_str($data, 'duration')) . ", " . db_quote(get_str($data, 'description')) . ", "
             . db_quote(get_str($data, 'artist')) . ", " . get_float($data, 'projected_hours') . ", "
             . get_float($data, 'actual_hours') . ", " . db_quote(get_str($data, 'priority', 'Medium')) . ", "
-            . db_quote(get_str($data, 'phase', 'Animating')) . ", "
+            . db_quote(safe_phase(get_str($data, 'phase', 'Animating'))) . ", "
             . db_quote(get_str($data, 'status', 'Not Started')) . ", "
             . db_quote(get_str($data, 'asset_link')) . ")");
         json_out(entry_out(db_row('SELECT * FROM entries WHERE id = ' . $eid)), 201);
@@ -637,6 +645,8 @@ function handle_entries(string $method, array $seg): void
                     }
                     if ($field === 'looping' || $field === 'alert_flag') {
                         $sets[] = "$field = " . (get_bool($data, $field, false) ? 1 : 0);
+                    } elseif ($field === 'phase') {
+                        $sets[] = "phase = " . db_quote(safe_phase((string)$v));
                     } elseif (in_array($field, ['projected_hours', 'actual_hours'], true)) {
                         $sets[] = "$field = " . get_float($data, $field);
                         $updatedHours = true;

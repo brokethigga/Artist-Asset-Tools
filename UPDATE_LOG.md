@@ -64,6 +64,53 @@ changes. Auto-migrates on first request after upload.**
 
 ---
 
+## 2026-10-13 — PHP app: type rename (Drawing→Art) + blueprint type
+
+**Target: `php-build/adam/` (live app, deployed via FileZilla). Follow-up to the
+2026-10-13 four-change round; ships with the same upload.**
+
+### 5. Entry type renamed: "Drawing" is now "Art"
+- `TYPES` in `app.js` is `['Animating','Art']` (Type dropdown, Add Entry form,
+  type summary, filter). CSS class `.status-Art` replaces `.status-Drawing`.
+- New idempotent migration in `bootstrap_db()`: `UPDATE entries SET
+  phase='Art' WHERE phase='Drawing'` (runs every request; matches nothing after
+  the first run).
+- `safe_phase()` added in `helpers.php`: accepts `Art`/`Animating`, normalizes
+  legacy `Drawing` → `Art`, everything else falls back to `Art`. Applied on
+  `POST /entries` and `PUT /entries` (phase).
+
+### 6. Blueprints carry a Type, entries inherit it
+- New `blueprints.phase` column (default `'Art'`), auto-migrated via
+  `$extraColumns` (`VARCHAR(50)`/`TEXT`).
+- Blueprint form gains a Type select; the card shows the type; `GET/POST/PUT
+  /blueprints` round-trip `phase` through `blueprint_out`.
+- "Add Entry" → picking a Blueprint now prefills the entry's Type with the
+  blueprint's type (`blueprintPicked`).
+- Applying a template stamps `phase` from the blueprint onto both state rows and
+  no-state placeholder rows. The one-time backfill (`backfill_elements_v1`)
+  also writes the blueprint type into inserted placeholders.
+
+### Files changed (this round)
+- `php-build/adam/lib/db.php` — `blueprints.phase` (both drivers + ALTER),
+  `Drawing→Art` data migration, backfill placeholder phase.
+- `php-build/adam/lib/helpers.php` — `safe_phase()`.
+- `php-build/adam/lib/handlers.php` — blueprint phase CRUD + `blueprint_out`,
+  template-apply phase stamping, entries POST/PUT phase normalization.
+- `php-build/adam/frontend/app.js` — `TYPES`, blueprint form select + card,
+  `blueprintPicked` prefill.
+- `php-build/adam/frontend/style.css` — `.status-Art`.
+
+### Verification
+- `php -l` clean on `db.php`, `handlers.php`, `helpers.php`; `node --check`
+  clean on `app.js`.
+- Harness extended to **28 assertions, all pass**: blueprint type default `Art`,
+  explicit `Animating` round-trip, placeholder/state entries inherit blueprint
+  type, legacy `Drawing` normalized to `Art` on POST and PUT, and the live
+  `Drawing→Art` migration on a pre-fix entry during backfill.
+- **Not verified:** MySQL paths (no local MySQL). `/api/db-check` after upload.
+
+---
+
 ## 2026-07-27 — Phase 1-6 Complete
 
 ### Phase 1: Foundation
@@ -284,8 +331,9 @@ Two independent causes, both fixed:
 ## Pending
 
 - [x] (2026-10-13) Blueprint→keep-element placeholder + `blueprint_id`, blueprint
-      priority ordering, Add-from-Blueprint, per-project Asset Guide + docx —
-      **still to upload to the live host via FileZilla**, then check
+      priority ordering, Add-from-Blueprint, per-project Asset Guide + docx,
+      type rename Drawing→Art, blueprint type — **still to upload to the live
+      host via FileZilla** (6 files incl. `frontend/style.css`), then check
       `/adam/api/db-check`
 - [ ] Upload the 2026-09-28 PHP fixes to the live host via FileZilla, then check
       `/adam/api/db-check` for `soft_delete_ok`
@@ -317,6 +365,8 @@ Two independent causes, both fixed:
 | 2026-10-13 | Asset Guide fields are per project | Fields differ per project; docx export per project |
 | 2026-10-13 | No-state blueprints appear as placeholder entries | Element must stay visible even with no animations yet |
 | 2026-10-13 | One-time backfill is guarded by `app_meta`, runs in `bootstrap_db` | Idempotent repair; never repeats; auto-applies on deploy |
+| 2026-10-13 | Entry type "Drawing" renamed to "Art" | User-facing naming; stored value migrated once, legacy term normalized in the API |
+| 2026-10-13 | Blueprints define a Type; entries inherit it | Type is an element attribute, so blueprints hold it and Add-from-Blueprint prefills it |
 
 ---
 

@@ -153,6 +153,19 @@ function safe_priority(string $p): string
 }
 
 /**
+ * Normalizes an entry type (phase). The legacy label "Drawing" was renamed to
+ * "Art"; anything outside Art/Animating falls back to Art.
+ */
+function safe_phase(string $p): string
+{
+    $p = trim($p);
+    if ($p === 'Drawing') {
+        $p = 'Art';
+    }
+    return in_array($p, ['Art', 'Animating'], true) ? $p : 'Art';
+}
+
+/**
  * Character count (UTF-8 aware). mbstring may be unavailable, so fall back
  * to iconv, then PCRE, then byte length.
  */

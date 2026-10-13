@@ -271,6 +271,7 @@ function bootstrap_db($db, string $driver): void
     if ($driver === 'mysql') {
         $extraColumns = [
             'blueprints.priority' => "ALTER TABLE `blueprints` ADD COLUMN priority VARCHAR(50) NOT NULL DEFAULT 'Medium'",
+            'blueprints.phase' => "ALTER TABLE `blueprints` ADD COLUMN phase VARCHAR(50) NOT NULL DEFAULT 'Art'",
             'entries.blueprint_id' => 'ALTER TABLE `entries` ADD COLUMN blueprint_id INT NULL',
             'projects.exported_location' => "ALTER TABLE `projects` ADD COLUMN exported_location VARCHAR(500) NOT NULL DEFAULT ''",
             'projects.exported_format' => "ALTER TABLE `projects` ADD COLUMN exported_format VARCHAR(255) NOT NULL DEFAULT ''",
@@ -283,6 +284,7 @@ function bootstrap_db($db, string $driver): void
     } else {
         $extraColumns = [
             'blueprints.priority' => "ALTER TABLE blueprints ADD COLUMN priority TEXT DEFAULT 'Medium'",
+            'blueprints.phase' => "ALTER TABLE blueprints ADD COLUMN phase TEXT DEFAULT 'Art'",
             'entries.blueprint_id' => 'ALTER TABLE entries ADD COLUMN blueprint_id INTEGER',
             'projects.exported_location' => "ALTER TABLE projects ADD COLUMN exported_location TEXT DEFAULT ''",
             'projects.exported_format' => "ALTER TABLE projects ADD COLUMN exported_format TEXT DEFAULT ''",
@@ -303,6 +305,14 @@ function bootstrap_db($db, string $driver): void
         } catch (Throwable $e) {
             error_log('[bootstrap] could not add `' . $col . '` to `' . $table . '`: ' . $e->getMessage());
         }
+    }
+
+    // Entry type rename: legacy "Drawing" is now called "Art". Idempotent —
+    // after the first run no rows still match "Drawing".
+    try {
+        db_exec("UPDATE entries SET phase = 'Art' WHERE phase = 'Drawing'");
+    } catch (Throwable $e) {
+        error_log('[bootstrap] phase rename Drawing->Art failed: ' . $e->getMessage());
     }
 
     // Seed organization
@@ -382,6 +392,7 @@ function sqlite_schema(SQLite3 $db): void
         name TEXT NOT NULL,
         description TEXT DEFAULT "",
         priority TEXT DEFAULT "Medium",
+        phase TEXT DEFAULT "Art",
         created_at TEXT
     )');
 
@@ -527,6 +538,7 @@ function mysql_schema($db): void
         name VARCHAR(255) NOT NULL,
         description TEXT NULL,
         priority VARCHAR(50) NOT NULL DEFAULT "Medium",
+        phase VARCHAR(50) NOT NULL DEFAULT "Art",
         created_at VARCHAR(32) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
@@ -724,7 +736,7 @@ function backfill_missing_elements(): void
     foreach ($projects as $p) {
         $pid = (int)$p['id'];
         $bpRows = db_rows(
-            'SELECT b.id, b.name, b.description FROM template_blueprints tb'
+            'SELECT b.id, b.name, b.description, b.phase FROM template_blueprints tb'
             . ' JOIN blueprints b ON b.id = tb.blueprint_id'
             . ' WHERE tb.template_id = ' . (int)$p['template_id'] . ' AND b.archived = 0'
             . ' ORDER BY tb.sort_order'
@@ -748,9 +760,10 @@ function backfill_missing_elements(): void
             );
             if ($missing === 0) {
                 db_exec(
-                    'INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours) VALUES ('
+                    'INSERT INTO entries (project_id, element_name, animation_name, blueprint_id, looping, duration, description, projected_hours, actual_hours, phase) VALUES ('
                     . $pid . ', ' . db_quote($elem) . ", '', " . (int)$bp['id'] . ', 0, ' . db_quote('')
-                    . ', ' . db_quote((string)($bp['description'] ?? '')) . ', 0, 0)'
+                    . ', ' . db_quote((string)($bp['description'] ?? '')) . ', 0, 0, '
+                    . db_quote((string)($bp['phase'] ?? 'Art')) . ')'
                 );
             }
         }

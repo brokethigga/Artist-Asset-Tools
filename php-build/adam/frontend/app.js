@@ -2,7 +2,7 @@ const APP_BASE = window.APP_BASE || "";
 const API = APP_BASE + "/api";
 const STATUSES = ['Not Started','In Progress','Review','Done'];
 const PRIORITIES = ['Low','Medium','High'];
-const TYPES = ['Animating','Drawing'];
+const TYPES = ['Animating','Art'];
 
 let currentUser = null;
 let redirectedToLogin = false;
@@ -210,7 +210,7 @@ async function loadBlueprints() {
       <div class="card" data-name="${esc(b.name.toLowerCase())}">
         <h3>${esc(b.name)}</h3>
         <p>${esc(b.description) || "—"}</p>
-        <div class="meta">${b.states.length} animation states · Priority: <strong>${esc(b.priority || 'Medium')}</strong></div>
+        <div class="meta">${b.states.length} animation states · Type: <strong>${esc(b.phase || 'Art')}</strong> · Priority: <strong>${esc(b.priority || 'Medium')}</strong></div>
         <div class="card-actions">
           <button class="small" onclick="showBlueprintForm(${b.id})">Edit</button>
           <button class="small danger" onclick="deleteBlueprint(${b.id})">${showArchivedBp ? 'Restore' : 'Archive'}</button>
@@ -235,6 +235,8 @@ function showBlueprintForm(id) {
     <form onsubmit="saveBlueprint(event, ${id || ''})">
       <div class="form-group"><label>Element Name</label><input name="name" value="${bp ? esc(bp.name) : ''}" required placeholder="e.g. Wild, Scatter, Pot"></div>
       <div class="form-group"><label>Description</label><textarea name="description">${bp ? esc(bp.description) : ''}</textarea></div>
+      <div class="form-group"><label>Type</label>
+        <select name="phase">${TYPES.map(p => `<option value="${p}" ${(bp ? bp.phase : 'Art') === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
       <div class="form-group"><label>Priority</label>
         <select name="priority">${PRIORITIES.map(p => `<option value="${p}" ${(bp ? bp.priority : 'Medium') === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
       <div class="form-group"><label>Animation States</label><div id="states-container">${statesHtml}</div>
@@ -264,7 +266,7 @@ async function saveBlueprint(e, id) {
     const inputs = el.querySelectorAll("input");
     states.push({ name: inputs[0].value, default_looping: inputs[1].checked, default_duration: inputs[2].value, default_description: inputs[3].value });
   }
-  const body = JSON.stringify({ name: fd.get("name"), description: fd.get("description"), priority: fd.get("priority") || "Medium", states });
+  const body = JSON.stringify({ name: fd.get("name"), description: fd.get("description"), phase: fd.get("phase") || "Art", priority: fd.get("priority") || "Medium", states });
   if (id) await api("/blueprints/" + id, { method: "PUT", body });
   else await api("/blueprints", { method: "POST", body });
   closeModal(); loadBlueprints();
@@ -845,8 +847,10 @@ function blueprintPicked(sel) {
   const loopBox = form.querySelector('input[name="looping"]');
   const durInput = form.querySelector('input[name="duration"]');
   const descArea = form.querySelector('textarea[name="description"]');
+  const phaseSel = form.querySelector('select[name="phase"]');
   if (!bp) return;
   if (elementInput) elementInput.value = bp.name;
+  if (phaseSel) phaseSel.value = bp.phase || 'Art';
   if (statePick) {
     statePick.innerHTML = "<option value=''>— select —</option>" +
       bp.states.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join("");
