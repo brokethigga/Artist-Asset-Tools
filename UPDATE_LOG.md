@@ -111,6 +111,45 @@ changes. Auto-migrates on first request after upload.**
 
 ---
 
+## 2026-10-13 — PHP app: owner-only permanent delete of archived items
+
+**Target: `php-build/adam/` (live app, deployed via FileZilla). Ships with the
+same upload as the two rounds above.**
+
+### 7. Archived items can be permanently deleted — but only by the owner
+- `DELETE /blueprints/{id}?permanent=1`, `DELETE /templates/{id}?permanent=1`,
+  `DELETE /projects/{id}?permanent=1` all **require the owner account** and an
+  **archived** item (living items must be archived first; tries on active items
+  are rejected with 400).
+- Owner identity = `OWNER_EMAIL` constant in `lib/auth.php`, default
+  `adam@siamkoala.com`, overridable via `admin/pass.php` `owner_email` key.
+  `require_owner()` returns 403 for everyone else.
+- Cascades: blueprint → its `blueprint_states` and `template_blueprints` links
+  (entries keep the stale `blueprint_id` and sort as Medium, so projects stay
+  intact); template → its links; project → entries, entry images (files under
+  `uploads/` are unlinked too), tags and comments.
+- Needs the MySQL `DELETE` grant on the live host (archiving was the previous
+  workaround because that grant was missing) — `/api/db-check` will confirm.
+
+### Files changed (this round)
+- `php-build/adam/lib/auth.php` — `OWNER_EMAIL` config + `require_owner()`.
+- `php-build/adam/lib/handlers.php` — permanent-delete branches (blueprint,
+  template, project) with cascade cleanup.
+- `php-build/adam/frontend/app.js` — "Delete" (permanent) button on archived
+  Blueprint/Template/Project cards, shown only when the signed-in email is the
+  owner; hard confirm dialogs.
+
+### Verification
+- `php -l` clean on `auth.php`, `handlers.php`; `node --check` clean on
+  `app.js`.
+- Harness now **35 assertions, all pass**: 400 on permanent-delete of an active
+  blueprint; owner deletes archived blueprint/template/project (project cascade
+  verified — it 404s afterwards); a second non-owner user gets **403** and the
+  archive survives.
+- **Not verified:** MySQL paths (no local MySQL). `/api/db-check` after upload.
+
+---
+
 ## 2026-07-27 — Phase 1-6 Complete
 
 ### Phase 1: Foundation
@@ -332,8 +371,9 @@ Two independent causes, both fixed:
 
 - [x] (2026-10-13) Blueprint→keep-element placeholder + `blueprint_id`, blueprint
       priority ordering, Add-from-Blueprint, per-project Asset Guide + docx,
-      type rename Drawing→Art, blueprint type — **still to upload to the live
-      host via FileZilla** (6 files incl. `frontend/style.css`), then check
+      type rename Drawing→Art, blueprint type, owner-only permanent delete of
+      archives — **still to upload to the live host via FileZilla** (7 files
+      incl. `lib/auth.php` and `frontend/style.css`), then check
       `/adam/api/db-check`
 - [ ] Upload the 2026-09-28 PHP fixes to the live host via FileZilla, then check
       `/adam/api/db-check` for `soft_delete_ok`
@@ -367,6 +407,8 @@ Two independent causes, both fixed:
 | 2026-10-13 | One-time backfill is guarded by `app_meta`, runs in `bootstrap_db` | Idempotent repair; never repeats; auto-applies on deploy |
 | 2026-10-13 | Entry type "Drawing" renamed to "Art" | User-facing naming; stored value migrated once, legacy term normalized in the API |
 | 2026-10-13 | Blueprints define a Type; entries inherit it | Type is an element attribute, so blueprints hold it and Add-from-Blueprint prefills it |
+| 2026-10-13 | Permanent delete of archived items is owner-only | One account (`OWNER_EMAIL`) may erase archives; everyone else 403 |
+| 2026-10-13 | Permanent delete requires archiving first | No accidental erasure of live items via the destructive endpoint |
 
 ---
 

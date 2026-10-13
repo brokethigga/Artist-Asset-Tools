@@ -328,18 +328,25 @@ Four approved changes to the live app (`php-build/adam/`), all local + verified,
    the blueprint form and shown on its card. Add-from-Blueprint prefills the
    entry's Type from the blueprint; template apply and the backfill stamp the
    blueprint's type onto created entries/placeholders.
+7. **Owner-only permanent delete of archived items.** The "Show archived" lists
+   get a **Delete** button that erases the item for good, but only for the owner
+   account (`OWNER_EMAIL`, default `adam@siamkoala.com`, overridable via
+   `admin/pass.php` `owner_email`). Non-owners get 403, and live (non-archived)
+   items must be archived first (400 otherwise). Projects cascade to entries,
+   uploads, tags and comments. Requires the MySQL `DELETE` grant on the host.
 
 **Deploy:** upload `lib/db.php`, `lib/helpers.php`, `lib/handlers.php`,
-`lib/export.php`, `frontend/app.js` **and `frontend/style.css`** via FileZilla,
-then hard-refresh. Schema changes auto-apply on first request; confirm with
-`/adam/api/db-check`.
+`lib/export.php`, `lib/auth.php`, `frontend/app.js` **and `frontend/style.css`**
+via FileZilla, then hard-refresh. Schema changes auto-apply on first request;
+confirm with `/adam/api/db-check`.
 
-**Verification:** `php -l` clean, `node --check` clean, and a 28-assertion
+**Verification:** `php -l` clean, `node --check` clean, and a 35-assertion
 end-to-end HTTP suite against a live `php -S` server on isolated temp SQLite
 (placeholder creation, backfill idempotency + stamping, priority ordering,
 Add-from-Blueprint, all 7 asset-guide fields, real `.docx` output, blueprint
-type inheritance, `Drawing→Art` normalization). MySQL paths still unverified
-locally — `/adam/api/db-check` on the live host is the check.
+type inheritance, `Drawing→Art` normalization, owner-only permanent delete:
+400 for live items, 403 for non-owners, cascade on projects). MySQL paths still
+unverified locally — `/adam/api/db-check` on the live host is the check.
 
 ### Phase Progress
 | Phase | Feature | Status |

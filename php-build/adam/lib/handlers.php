@@ -89,6 +89,20 @@ function handle_blueprints(string $method, array $seg): void
             json_out(blueprint_out(db_row('SELECT * FROM blueprints WHERE id = ' . $id)));
         }
         if ($method === 'DELETE') {
+            // Owner-only permanent delete for archived blueprints. Living
+            // blueprints must be archived first so nothing is erased by
+            // accident; a deleted blueprint just leaves entries unlinked
+            // (they sort as Medium and stay with the project).
+            if (filter_var($_GET['permanent'] ?? 0, FILTER_VALIDATE_BOOLEAN)) {
+                require_owner();
+                if (!(int)$bp['archived']) {
+                    throw new ApiError('Archive the blueprint first, then permanently delete it', 400);
+                }
+                db_exec('DELETE FROM blueprint_states WHERE blueprint_id = ' . $id);
+                db_exec('DELETE FROM template_blueprints WHERE blueprint_id = ' . $id);
+                db_exec('DELETE FROM blueprints WHERE id = ' . $id);
+                json_out(['ok' => true]);
+            }
             db_exec("UPDATE blueprints SET archived = 1 WHERE id = $id");
             json_out(['ok' => true]);
         }
@@ -199,6 +213,15 @@ function handle_templates(string $method, array $seg): void
             json_out(template_out(db_row('SELECT * FROM templates WHERE id = ' . $id)));
         }
         if ($method === 'DELETE') {
+            if (filter_var($_GET['permanent'] ?? 0, FILTER_VALIDATE_BOOLEAN)) {
+                require_owner();
+                if (!(int)$tpl['archived']) {
+                    throw new ApiError('Archive the template first, then permanently delete it', 400);
+                }
+                db_exec('DELETE FROM template_blueprints WHERE template_id = ' . $id);
+                db_exec('DELETE FROM templates WHERE id = ' . $id);
+                json_out(['ok' => true]);
+            }
             db_exec("UPDATE templates SET archived = 1 WHERE id = $id");
             json_out(['ok' => true]);
         }
@@ -369,6 +392,26 @@ function handle_projects(string $method, array $seg): void
             json_out(project_out(db_row('SELECT * FROM projects WHERE id = ' . $pid)));
         }
         if ($method === 'DELETE') {
+            // Owner-only permanent delete for archived projects. Removes the
+            // project and its entries, tags, comments and uploaded images.
+            if (filter_var($_GET['permanent'] ?? 0, FILTER_VALIDATE_BOOLEAN)) {
+                require_owner();
+                if (!(int)$project['archived']) {
+                    throw new ApiError('Archive the project first, then permanently delete it', 400);
+                }
+                foreach (db_rows('SELECT image_path FROM entry_images WHERE entry_id IN (SELECT id FROM entries WHERE project_id = ' . $pid . ')') as $img) {
+                    $f = UPLOAD_DIR . '/' . (string)$img['image_path'];
+                    if ($f !== UPLOAD_DIR . '/' && is_file($f)) {
+                        @unlink($f);
+                    }
+                }
+                db_exec('DELETE FROM entry_images WHERE entry_id IN (SELECT id FROM entries WHERE project_id = ' . $pid . ')');
+                db_exec('DELETE FROM entries WHERE project_id = ' . $pid);
+                db_exec('DELETE FROM tags WHERE project_id = ' . $pid);
+                db_exec('DELETE FROM comments WHERE project_id = ' . $pid);
+                db_exec('DELETE FROM projects WHERE id = ' . $pid);
+                json_out(['ok' => true]);
+            }
             db_exec("UPDATE projects SET archived = 1 WHERE id = $pid");
             json_out(['ok' => true]);
         }

@@ -213,6 +213,7 @@ async function loadBlueprints() {
         <div class="meta">${b.states.length} animation states · Type: <strong>${esc(b.phase || 'Art')}</strong> · Priority: <strong>${esc(b.priority || 'Medium')}</strong></div>
         <div class="card-actions">
           <button class="small" onclick="showBlueprintForm(${b.id})">Edit</button>
+          ${showArchivedBp && isOwner() ? `<button class="small danger" onclick="permanentDeleteBlueprint(${b.id})" title="Permanently delete (owner only)">Delete</button>` : ''}
           <button class="small danger" onclick="deleteBlueprint(${b.id})">${showArchivedBp ? 'Restore' : 'Archive'}</button>
         </div>
       </div>
@@ -283,6 +284,12 @@ async function deleteBlueprint(id) {
   loadBlueprints();
 }
 
+async function permanentDeleteBlueprint(id) {
+  if (!confirm("PERMANENTLY delete this archived blueprint and all its animation states?\n\nThis cannot be undone.")) return;
+  await api("/blueprints/" + id + "?permanent=1", { method: "DELETE" });
+  loadBlueprints();
+}
+
 // ========== TEMPLATES ==========
 let templates = [];
 let showArchivedTpl = false;
@@ -305,6 +312,7 @@ async function loadTemplates() {
       return `<div class="card" data-name="${esc(t.name.toLowerCase())}"><h3>${esc(t.name)}</h3><p>${esc(t.description) || "—"}</p>
         <div class="meta">${(t.blueprints||[]).length} elements: ${esc(bpNames)}</div>
         <div class="card-actions"><button class="small" onclick="showTemplateForm(${t.id})">Edit</button>
+        ${showArchivedTpl && isOwner() ? `<button class="small danger" onclick="permanentDeleteTemplate(${t.id})" title="Permanently delete (owner only)">Delete</button>` : ''}
         <button class="small danger" onclick="deleteTemplate(${t.id})">${showArchivedTpl ? 'Restore' : 'Archive'}</button></div></div>`;
     }).join("") + '</div>' : `<p style="color:#999">No ${showArchivedTpl ? 'archived ' : ''}templates yet.</p>`}</div>`;
 }
@@ -348,6 +356,12 @@ async function deleteTemplate(id) {
     if (!confirm("Archive this template?")) return;
     await api("/templates/" + id, { method: "DELETE" });
   }
+  loadTemplates();
+}
+
+async function permanentDeleteTemplate(id) {
+  if (!confirm("PERMANENTLY delete this archived template and its element links?\n\nThis cannot be undone.")) return;
+  await api("/templates/" + id + "?permanent=1", { method: "DELETE" });
   loadTemplates();
 }
 
@@ -409,6 +423,7 @@ async function loadProjects() {
         <div class="progress-bar" id="prog-${p.id}"><div class="progress-fill" style="width:0%"></div></div>
         <div class="meta"><span class="badge ${p.status}">${p.status}</span></div>
         <div class="meta" style="font-size:12px;color:#777">Created ${fmtDate(p.created_at)}${p.deadline ? ' · <span style="color:#c62828">Due ' + fmtDate(p.deadline) + '</span>' : ''}</div>
+        ${p.archived && isOwner() ? `<button onclick="event.stopPropagation();permanentDeleteProject(${p.id},'${esc(p.name)}')" class="danger" style="position:absolute;top:8px;right:86px;padding:4px 8px;font-size:11px" title="Permanently delete (owner only)" tabindex="-1">Delete</button>` : ''}
         <button onclick="event.stopPropagation();deleteProject(${p.id},'${esc(p.name)}')" class="danger" style="position:absolute;top:8px;right:8px;padding:4px 8px;font-size:11px">${p.archived ? 'Restore' : 'Archive'}</button>
       </div>`;
     }).join("") + '</div>' : '<p style="color:#999">No projects yet.</p>'}
@@ -1030,6 +1045,16 @@ async function deleteProject(id, name) {
     await api("/projects/" + id, { method: "DELETE" });
   }
   loadProjects();
+}
+
+async function permanentDeleteProject(id, name) {
+  if (!confirm(`PERMANENTLY delete "${name}" and everything in it?\n\nProject, entries, images, tags and comments are all erased. This cannot be undone.`)) return;
+  await api("/projects/" + id + "?permanent=1", { method: "DELETE" });
+  loadProjects();
+}
+
+function isOwner() {
+  return !!(currentUser && String(currentUser.email || "").toLowerCase() === "adam@siamkoala.com");
 }
 
 async function refreshProjectView() {

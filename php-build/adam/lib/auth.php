@@ -14,6 +14,9 @@ define('GOOGLE_CLIENT_SECRET', $secrets['client_secret'] ?? '');
 define('GOOGLE_REDIRECT_URI', $secrets['redirect_uri'] ?? '');
 define('AUTH_SECRET', $secrets['auth_secret'] ?? 'choreo-default-secret-change-me');
 define('ADMIN_EMAILS', $secrets['admin_emails'] ?? []);
+// The single account allowed to permanently delete archived items. Falls back
+// to the first admin's email so nothing accidental can be erased by others.
+define('OWNER_EMAIL', strtolower(trim($secrets['owner_email'] ?? 'adam@siamkoala.com')));
 define('GOOGLE_SCOPES', 'email profile');
 define('WHITELISTED_DOMAINS', $secrets['whitelisted_domains'] ?? []);
 
@@ -143,6 +146,19 @@ function require_admin(): array
     $user = require_auth();
     if ($user['role'] !== 'admin') {
         throw new ApiError('Admin required', 403);
+    }
+    return $user;
+}
+
+/**
+ * Only the owner account (OWNER_EMAIL) passes. Used for destructive actions
+ * like permanently deleting archived items. Any other signed-in user gets 403.
+ */
+function require_owner(): array
+{
+    $user = require_auth();
+    if (strtolower(trim((string)$user['email'])) !== OWNER_EMAIL) {
+        throw new ApiError('Only the owner can perform this action', 403);
     }
     return $user;
 }
